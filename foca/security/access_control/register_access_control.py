@@ -189,7 +189,9 @@ def check_access_control_config(
             rule grants the role `admin` and `access_control.require_admin` is
             set (cf. :py:func:`_check_admin_role`), or a role of
             `access_control.required_roles` doesn't exist (cf.
-            :py:func:`_check_required_roles`).
+            :py:func:`_check_required_roles`), or a configured policy rule
+            names a user that no trusted issuer has (cf.
+            :py:func:`_check_policy_users`).
     """
     _check_group_config(access_control_config, auth_config)
     _check_policy_users(access_control_config, auth_config)
@@ -200,21 +202,25 @@ def check_access_control_config(
 def _check_policy_users(
     access_control_config: AccessControlConfig, auth_config: AuthConfig
 ) -> None:
-    """Warn of configured policy rules naming users that no issuer has.
+    """Check that configured policy rules name only users that issuers have.
 
     Users are named in rules as `<subject_prefix><namespace>|<subject>`,
     by default with the issuer as namespace, or without namespace for an
     issuer that keeps its subjects bare (cf.
     :py:func:`foca.security.auth.namespace_subject`). Rules naming other
     users (e.g., bare users of an app that stored them before FOCA 0.23.0)
-    apply to nobody. Only warns, as custom models may match subjects in
-    other ways. The warning names the positions of the rules in
-    `policies`, but not the users.
+    apply to nobody, so a missed migration of, e.g., admin rules would go
+    unnoticed. The error names the positions of the rules in `policies`,
+    but not the users.
 
     Args:
         access_control_config: Access control configuration.
         auth_config: Authentication configuration, for the namespaces of the
             trusted issuers.
+
+    Raises:
+        ValueError: A configured policy rule names a user (a value starting
+            with `subject_prefix`) that no trusted issuer has.
     """
     namespaces = list(auth_config.get_namespaces().values())
     # Without namespaces (e.g., no trusted issuers), any subject is bare
@@ -229,15 +235,17 @@ def _check_policy_users(
         if any(isinstance(value, str) and pattern.match(value) for value in rule[1:])
     ]
     if positions:
-        logger.warning(
-            "Configured policy rules at positions %s of "
+        prefix = access_control_config.subject_prefix
+        raise ValueError(
+            f"Configured policy rules at positions {positions} of "
             "'security.access_control.policies' (counting from 0) name users "
-            "without the namespace of a trusted issuer, so they apply to "
-            "nobody: name users as '%s<namespace>|<subject>', where the "
-            "namespace is the issuer unless set in "
-            "'security.auth.issuers[].namespace'.",
-            positions,
-            access_control_config.subject_prefix,
+            "without the namespace of a trusted issuer, so they would apply "
+            f"to nobody. To fix this, name the users in these rules as "
+            f"'{prefix}<namespace>|<subject>', where the namespace is the "
+            "issuer unless set in 'security.auth.issuers[].namespace' (and "
+            "namespace stored rules with 'foca namespace-subjects'); or, to "
+            "keep the subjects of one trusted issuer bare, set its "
+            "'security.auth.issuers[].namespace' to \"\"."
         )
 
 

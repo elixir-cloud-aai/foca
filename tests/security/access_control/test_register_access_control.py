@@ -1022,20 +1022,25 @@ class TestPolicyUsers:
         policies: list[list[str]] | None,
         positions: list[int],
     ) -> None:
-        """Configured rules naming unknown users are warned about, by position."""
+        """Configured rules naming unknown users fail startup, by position."""
         conf = AccessControlConfig(policies=policies)
-        with caplog.at_level(logging.WARNING):
-            register_access_control_module._check_policy_users(conf, _auth(*issuers))
-        warnings = [w for w in _warnings(caplog) if w.startswith(UNKNOWN_USERS)]
         if positions:
-            assert warnings == [warnings[0]]
-            assert f"positions {positions} of" in warnings[0]
-            assert "alice" not in warnings[0]
-            assert "bob" not in warnings[0]
+            with pytest.raises(ValueError, match=UNKNOWN_USERS) as excinfo:
+                register_access_control_module._check_policy_users(
+                    conf, _auth(*issuers)
+                )
+            message = str(excinfo.value)
+            assert f"positions {positions} of" in message
+            assert "alice" not in message
+            assert "bob" not in message
+            # says how to fix the configuration
+            assert "'user:<namespace>|<subject>'" in message
+            assert "'security.auth.issuers[].namespace'" in message
+            assert "foca namespace-subjects" in message
         else:
-            assert not warnings
+            register_access_control_module._check_policy_users(conf, _auth(*issuers))
 
-    def test_configured_on_registration(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_configured_on_registration(self) -> None:
         """Configured rules are checked when access control is registered."""
         cnx_app = create_connexion_app(
             Config(security=SecurityConfig(auth=_auth(ISSUER)))
@@ -1045,11 +1050,10 @@ class TestPolicyUsers:
             collection_name="policy_rules",
             policies=[["g", "user:alice", "admin"]],
         )
-        with caplog.at_level(logging.WARNING):
+        with pytest.raises(ValueError, match=UNKNOWN_USERS):
             register_access_control(
                 cnx_app=cnx_app, mongo_config=None, access_control_config=conf
             )
-        assert any(w.startswith(UNKNOWN_USERS) for w in _warnings(caplog))
 
     @pytest.mark.parametrize(
         "issuers,stored,warned",

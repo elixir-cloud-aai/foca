@@ -134,15 +134,21 @@ is enabled, `Foca.create_app()` checks them, and refuses to start
   the app grants roles to groups.
 - **Users:** users are named in rules with the namespace of their issuer
   (`user:<namespace>|<subject>`, cf. [several trusted
-  issuers](../authentication.md#several-trusted-issuers)). A warning is
-  logged if a rule of `policies` names a user that no trusted issuer has,
-  e.g., without namespace (`user:alice`), naming the positions of these
-  rules, but not the users; and if a stored rule does (e.g., written via the
+  issuers](../authentication.md#several-trusted-issuers)). Such rules apply
+  to nobody, so a missed migration (e.g., of admins) would go unnoticed. The
+  app refuses to start if a rule of `policies` names a user that no trusted
+  issuer has, e.g., without namespace (`user:alice`), naming the positions
+  of these rules, but not the users: name the users with namespace (e.g.,
+  `user:https://login.example.org/oidc/|alice`), or keep the subjects of
+  the issuer bare (`namespace: ""`, see [several trusted
+  issuers](../authentication.md#several-trusted-issuers)). Users without
+  namespace are fine if an issuer keeps its subjects bare. A warning is
+  logged if a stored rule names such a user (e.g., written via the
   permissions API, or stored before FOCA 0.23.0, cf. [Migrating to
-  0.23.0](../migration-0.23.md#subjects-are-always-namespaced-by-issuer)).
-  Such rules apply to nobody. Users without namespace are fine if an issuer
-  keeps its subjects bare (`namespace: ""`). Only warnings, as custom models
-  may match subjects in other ways. The check of stored rules runs where
+  0.23.0](../migration-0.23.md#subjects-are-always-namespaced-by-issuer));
+  namespace them with [`foca
+  namespace-subjects`](../cli.md#namespace-subjects). The check of stored
+  rules runs where
   stored configured rules are replaced (on startup, or with
   [`foca sync-policies`](../cli.md#sync-policies)).
 - **Opt-in roles:** the opt-in roles and their header are logged

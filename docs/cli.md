@@ -107,8 +107,11 @@ any trusted issuer and `|`.
 Only stored rules that aren't configured are rewritten (e.g., written via the
 permissions API or by the [resource ownership
 helpers](access-control.md#resource-ownership)), in any of their values (e.g., owners
-in `g2` rules). Configured rules are counted, but kept, as the app replaces them with
-those of `security.access_control.policies`: namespace the users there. Rules whose
+in `g2` rules). Stored configured rules are counted, but kept, as the app replaces them
+with those of `security.access_control.policies` (on startup, or with `sync-policies`):
+namespace the users there, as the app refuses to start while configured rules name
+bare users (cf. [startup
+checks](configuration/access-control.md#startup-checks)). Rules whose
 namespaced users wouldn't be valid rule values (more than 1024 characters) are counted
 and kept, and so are roles of bare users on resources (e.g., `g2` rules) on which the
 namespaced user had a stored role before the run, e.g., granted or changed since the

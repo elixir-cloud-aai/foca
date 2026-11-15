@@ -629,7 +629,7 @@ class TestNamespaceSubjects:
 
     @staticmethod
     def _conf(database: str, auth: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Create a configuration with access control and a bare user's rule.
+        """Create a configuration with access control and a configured rule.
 
         Args:
             database: Name of the database of the policies.
@@ -645,7 +645,8 @@ class TestNamespaceSubjects:
                     "enabled": True,
                     "db_name": database,
                     "collection_name": "policies",
-                    "policies": [["g", "user:carol", "admin"]],
+                    # namespaced, as bare users would fail startup
+                    "policies": [["g", f"user:{ISSUER}|carol", "admin"]],
                 },
             }
         }
@@ -701,14 +702,23 @@ class TestNamespaceSubjects:
         """Bare users of stored rules are namespaced; dry runs only count them."""
         module = app_module(self._conf(database))
         self._store(database, "user:alice", f"user:{ISSUER}|bob")
-        # stores the configured rule, as on startup
-        assert main(["--app", f"{module}:foca", "sync-policies"]) == 0
+        client: MongoClient[dict[str, Any]] = MongoClient(
+            f"mongodb://localhost:{MONGO_PORT}"
+        )
+        try:
+            # a configured rule stored by the previous version, before the
+            # stored configured rules are replaced
+            client[database]["policies"].insert_one(
+                {"ptype": "g", "v0": "user:carol", "v1": "admin", "configured": True}
+            )
+        finally:
+            client.close()
         args = ["--app", f"{module}:foca", "namespace-subjects", ISSUER]
         assert main([*args, "--dry-run"]) == 0
         output = capsys.readouterr().out
         assert "To namespace: 1 stored rules" in output
-        # the configured rule
-        assert "Kept: 1 configured rules" in output
+        # the stored configured rule
+        assert "Kept: 1 stored configured rules" in output
         # bob's rule
         assert (
             "Kept: 1 stored rules naming users that already start with the "

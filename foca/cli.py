@@ -203,8 +203,10 @@ def _namespace_subjects(foca: Foca, args: argparse.Namespace) -> str:
         )
     if counts.configured:
         output += (
-            f"Kept: {counts.configured} configured rules with bare users; "
-            "namespace them in 'security.access_control.policies'.\n"
+            f"Kept: {counts.configured} stored configured rules with bare "
+            "users; they are replaced with those of "
+            "'security.access_control.policies' on startup or with "
+            "'foca sync-policies'.\n"
         )
     return output
 

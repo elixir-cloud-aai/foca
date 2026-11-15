@@ -35,11 +35,16 @@ and store for users:
   without slashes.
 
 Stored bare users then no longer apply, e.g., owners and admins granted via
-the permissions API lose their roles. Choose one of these before you upgrade:
+the permissions API lose their roles, and the app refuses to start while
+configured rules (`security.access_control.policies`) name bare users.
+Choose one of these before you upgrade:
 
 1. **Keep the subjects bare:** set `namespace: ""` for the trusted issuer, so
    that its subjects stay bare as before, also if another issuer is trusted
-   later (whose subjects are then namespaced). Nothing else changes:
+   later (whose subjects are then namespaced). Nothing else changes, and no
+   data needs to be moved. This is an explicit opt-out for one issuer, for
+   existing deployments; it will be reconsidered for FOCA 1.0, so new
+   deployments shouldn't use it:
 
     ```yaml
     security:
@@ -57,9 +62,11 @@ the permissions API lose their roles. Choose one of these before you upgrade:
 
     1. Namespace the users of configured rules in
        `security.access_control.policies`, e.g., `[g, "user:alice", admin]`
-       to `[g, "user:https://login.example.org/oidc/|alice", admin]`. FOCA warns
-       on startup of configured and stored rules naming users without the
-       namespace of a trusted issuer.
+       to `[g, "user:https://login.example.org/oidc/|alice", admin]`. FOCA
+       refuses to start if a configured rule names a user without the
+       namespace of a trusted issuer (`ValueError`, naming the positions of
+       the rules in `policies`), so that admins aren't lost unnoticed, and
+       warns on startup of stored rules naming such users.
     2. Rewrite the stored rules with the [command-line
        tool](cli.md#namespace-subjects), first with `--dry-run` to count them,
        before the new version serves requests (e.g., in a Helm `pre-upgrade`
