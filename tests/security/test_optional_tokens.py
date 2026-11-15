@@ -27,6 +27,8 @@ from foca.security.auth import InvalidTokenResolver, _reject_invalid_token
 from foca.testing import Client, request_context
 
 ISSUER = "https://idp.example.org"
+# Keeps its subjects bare, as the tests name users without namespace
+BARE_ISSUER = {"issuer": ISSUER, "namespace": ""}
 DISCOVERY_URI = f"{ISSUER}/.well-known/openid-configuration"
 JWKS_URI = f"{ISSUER}/jwks"
 THIS_MODULE = __name__
@@ -175,7 +177,7 @@ def _app(tmp_path: Path, reject: bool) -> Flask:
         {
             "security": {
                 "auth": {
-                    "issuers": [ISSUER],
+                    "issuers": [BARE_ISSUER],
                     "audience": ["foca"],
                     "reject_invalid_tokens": reject,
                 }

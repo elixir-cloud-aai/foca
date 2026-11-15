@@ -35,6 +35,9 @@ from foca.security.access_control import (
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
     DEFAULT_API_SPEC_PATH,
+    DEFAULT_MODEL_FILE,
+    GRANTED_RIGHTS_MODEL_FILE,
+    RESOURCE_ROLE_MODEL_FILE,
 )
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.access_control.register_access_control import (
@@ -961,3 +964,211 @@ class TestWarnDefaultBasePath:
         )
         register_access_control_module._warn_default_base_path(conf)
         assert ("names the default path" in caplog.text) is warned
+
+
+ISSUER = "https://login.example.org/oidc/"
+UNKNOWN_USERS = "Configured policy rules at positions"
+STORED_UNKNOWN_USERS = "Stored policy rules name users without the namespace"
+
+
+def _auth(*issuers: Any) -> AuthConfig:
+    """Get authentication settings trusting issuers.
+
+    Args:
+        *issuers: Trusted issuers, as URLs or settings.
+
+    Returns:
+        Authentication settings.
+    """
+    return AuthConfig.model_validate({"issuers": list(issuers), "audience": ["foca"]})
+
+
+class TestPolicyUsers:
+    """Tests for the checks of users named in rules."""
+
+    @pytest.fixture(autouse=True)
+    def _mongo_clients(self, mongo_clients: MongoClients) -> None:
+        """Use in-memory MongoDB clients, as indexes are created."""
+
+    @pytest.mark.parametrize(
+        "issuers,policies,positions",
+        [
+            # bare users of the default namespace, the issuer
+            ([ISSUER], [["g", "user:alice", "admin"]], [0]),
+            (
+                [ISSUER],
+                [
+                    ["p", "*", "/x", "GET"],
+                    ["g", f"user:{ISSUER}|alice", "admin"],
+                    ["g2", "user:bob", "owner", "/x"],
+                    ["p", "group:a", "/x", "GET"],
+                ],
+                [2],
+            ),
+            ([{"issuer": ISSUER, "namespace": "ls"}], [["g", "user:ls|a", "x"]], []),
+            # an issuer keeps its subjects bare
+            ([{"issuer": ISSUER, "namespace": ""}], [["g", "user:a|b", "x"]], []),
+            (
+                [{"issuer": ISSUER, "namespace": ""}, "https://other.example.org/"],
+                [["g", "user:alice", "admin"], ["g", "user:a|b", "admin"]],
+                [1],
+            ),
+            # no trusted issuers, or no rules
+            ([], [["g", "user:alice", "admin"]], []),
+            ([ISSUER], None, []),
+        ],
+    )
+    def test_configured(
+        self,
+        issuers: list[Any],
+        policies: list[list[str]] | None,
+        positions: list[int],
+    ) -> None:
+        """Configured rules naming unknown users fail startup, by position."""
+        conf = AccessControlConfig(policies=policies)
+        if positions:
+            with pytest.raises(ValueError, match=UNKNOWN_USERS) as excinfo:
+                register_access_control_module._check_policy_users(
+                    conf, _auth(*issuers)
+                )
+            message = str(excinfo.value)
+            assert f"positions {positions} of" in message
+            assert "alice" not in message
+            assert "bob" not in message
+            # says how to fix the configuration
+            assert "'user:<namespace>|<subject>'" in message
+            assert "'security.auth.issuers[].namespace'" in message
+        else:
+            register_access_control_module._check_policy_users(conf, _auth(*issuers))
+
+    def test_configured_named(self) -> None:
+        """Named rules are named in the error, instead of positions."""
+        conf = AccessControlConfig.model_validate(
+            {
+                "policies": {
+                    "public": ["p", "*", "/x", "GET"],
+                    "admins": ["g", "user:alice", "admin"],
+                }
+            }
+        )
+        with pytest.raises(ValueError, match="Configured policy rules 'admins' of"):
+            register_access_control_module._check_policy_users(conf, _auth(ISSUER))
+
+    def test_configured_custom_model(
+        self, caplog: pytest.LogCaptureFixture, tmp_path: Path
+    ) -> None:
+        """With custom models, which may match users in other ways, only warns."""
+        model = tmp_path / "model.conf"
+        default = files(ACCESS_CONTROL_BASE_PATH).joinpath(DEFAULT_MODEL_FILE)
+        custom = default.read_text().replace(
+            "g(r.sub, p.sub)", "keyMatch(r.sub, p.sub)"
+        )
+        assert custom != default.read_text()
+        model.write_text(custom)
+        conf = AccessControlConfig(
+            model=str(model), policies=[["p", "user:*", "/public", "GET"]]
+        )
+        with caplog.at_level(logging.WARNING):
+            register_access_control_module._check_policy_users(conf, _auth(ISSUER))
+        warnings = [w for w in _warnings(caplog) if w.startswith(UNKNOWN_USERS)]
+        assert len(warnings) == 1
+        assert "positions [0] of" in warnings[0]
+        assert "custom model" in warnings[0]
+
+    @pytest.mark.parametrize(
+        "name",
+        [DEFAULT_MODEL_FILE, RESOURCE_ROLE_MODEL_FILE, GRANTED_RIGHTS_MODEL_FILE],
+    )
+    @pytest.mark.parametrize("copy", [False, True])
+    def test_configured_packaged_model(
+        self, tmp_path: Path, name: str, copy: bool
+    ) -> None:
+        """Models that FOCA ships, and copies of them, fail startup."""
+        model = f"foca:{name}"
+        if copy:
+            copied = tmp_path / "model.conf"
+            text = files(ACCESS_CONTROL_BASE_PATH).joinpath(name).read_text()
+            # whitespace and comments are ignored
+            text = text.replace(" = ", "  =  ").replace("\n[", "\n# changed\n[")
+            copied.write_text(f"# copied from FOCA\n{text}  # end\n\n")
+            model = str(copied)
+        conf = AccessControlConfig(model=model, policies=[["g", "user:alice", "admin"]])
+        with pytest.raises(ValueError, match=UNKNOWN_USERS):
+            register_access_control_module._check_policy_users(conf, _auth(ISSUER))
+
+    def test_is_packaged_model(self, tmp_path: Path) -> None:
+        """No model is the default model; missing files are custom models."""
+        assert register_access_control_module._is_packaged_model(None)
+        missing = str(tmp_path / "missing.conf")
+        assert not register_access_control_module._is_packaged_model(missing)
+
+    def test_configured_on_registration(self) -> None:
+        """Configured rules are checked when access control is registered."""
+        cnx_app = create_connexion_app(
+            Config(security=SecurityConfig(auth=_auth(ISSUER)))
+        )
+        conf = AccessControlConfig(
+            db_name="access_control_db",
+            collection_name="policy_rules",
+            policies=[["g", "user:alice", "admin"]],
+        )
+        with pytest.raises(ValueError, match=rf"{UNKNOWN_USERS} \[0\] of"):
+            register_access_control(
+                cnx_app=cnx_app, mongo_config=None, access_control_config=conf
+            )
+
+    @pytest.mark.parametrize(
+        "issuers,stored,warned",
+        [
+            ([ISSUER], True, True),
+            ([ISSUER], False, False),
+            # not checked without namespaces
+            ([{"issuer": ISSUER, "namespace": ""}], True, False),
+        ],
+    )
+    def test_stored(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+        issuers: list[Any],
+        stored: bool,
+        warned: bool,
+    ) -> None:
+        """Stored rules naming unknown users are warned about."""
+        check = MagicMock(return_value=stored)
+        monkeypatch.setattr(Adapter, "has_stored_unknown_users", check)
+        cnx_app = create_connexion_app(
+            Config(security=SecurityConfig(auth=_auth(*issuers)))
+        )
+        conf = AccessControlConfig(
+            db_name="access_control_db", collection_name="policy_rules"
+        )
+        with caplog.at_level(logging.WARNING):
+            register_access_control(
+                cnx_app=cnx_app, mongo_config=None, access_control_config=conf
+            )
+        warnings = [w for w in _warnings(caplog) if w.startswith(STORED_UNKNOWN_USERS)]
+        assert bool(warnings) is warned
+        if warned:
+            assert check.call_args.args == ("user:", [ISSUER])
+
+    def test_stored_unknown(
+        self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Startup continues if stored rules cannot be checked."""
+        failure = MagicMock(side_effect=PyMongoError("unavailable"))
+        monkeypatch.setattr(Adapter, "has_stored_unknown_users", failure)
+        cnx_app = create_connexion_app(
+            Config(security=SecurityConfig(auth=_auth(ISSUER)))
+        )
+        conf = AccessControlConfig(
+            db_name="access_control_db", collection_name="policy_rules"
+        )
+        with caplog.at_level(logging.WARNING):
+            register_access_control(
+                cnx_app=cnx_app, mongo_config=None, access_control_config=conf
+            )
+        assert any(
+            w.startswith("Could not check for stored policy rules with unknown users")
+            for w in _warnings(caplog)
+        )
