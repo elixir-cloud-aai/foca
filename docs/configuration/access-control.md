@@ -146,9 +146,10 @@ is enabled, `Foca.create_app()` checks them, and refuses to start
       `user:https://login.example.org/oidc/|alice`), or keep the subjects
       of the issuer bare.
     - **Custom models:** with a `model` that is neither one that FOCA ships
-      (`foca:<file>`) nor a copy of one, configured rules naming such users
-      are only warned about, as the model may match users in other ways
-      (e.g., `user:*` with `keyMatch`).
+      (`foca:<file>`) nor a copy of one (compared without whitespace and
+      comments), configured rules naming such users are only warned about,
+      as the model may match users in other ways (e.g., `user:*` with
+      `keyMatch`).
     - **Stored rules:** a warning is logged if a stored rule names such a
       user (e.g., written via the permissions API, or stored before FOCA
       0.23.0, cf. [Migrating to

@@ -1734,6 +1734,18 @@ class TestNamespaceUsers:
         assert result == NamespacedUsers(rewritten=0, configured=0, invalid=1)
         assert self._rules(mock_adapter) == [["p", long_user, "/x", "GET"]]
 
+    def test_changed_meanwhile(
+        self, mock_adapter: Adapter, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Rules changed or removed during the run don't count as rewritten."""
+        mock_adapter.add_policy("p", "p", ["user:alice", "/x", "GET"])
+        # the conditional update matches nothing, as the rule changed
+        unmatched = mock.Mock(return_value=mock.Mock(modified_count=0))
+        monkeypatch.setattr(mock_adapter._collection, "update_one", unmatched)
+        result = mock_adapter.namespace_users("user:", "ls", ["ls"])
+        assert result == NamespacedUsers(rewritten=0, configured=0, invalid=0)
+        assert unmatched.call_count == 1
+
     def test_marked_changed_on_failure(
         self, mock_adapter: Adapter, monkeypatch: pytest.MonkeyPatch
     ) -> None:

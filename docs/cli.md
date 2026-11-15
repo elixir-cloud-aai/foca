@@ -115,9 +115,18 @@ checks](configuration/access-control.md#startup-checks)). Rules whose
 namespaced users wouldn't be valid rule values (more than 1024 characters) are counted
 and kept, and so are roles of bare users on resources (e.g., `g2` rules) on which the
 namespaced user had a stored role before the run, e.g., granted or changed since the
-upgrade, so that the command doesn't add to roles changed since. The rules are then marked as changed, so that
-running app instances load them again. With `--dry-run`, the command only counts the
-rules.
+upgrade, so that the command doesn't add to roles changed since. The rules are then
+marked as changed, so that running app instances load them again. With `--dry-run`, the
+command only counts the rules.
+
+Run the command while no instance of the old version writes rules (e.g., in a Helm
+`pre-upgrade` hook with the old instances scaled down, or right after the upgrade): rules
+that such instances write or change during the run may stay bare, and rules changed
+during the run aren't rewritten or counted. Running the command again rewrites them, and
+also marks the rules as changed if an earlier run was interrupted (e.g., killed) before
+doing so. Roles of bare users on resources on which an interrupted run already
+namespaced another role of the user count as roles of the namespaced user before the
+run, and are kept: the output counts them; rewrite or remove them yourself.
 
 It fails if access control isn't enabled, if no trusted issuer has the namespace, and
 if an issuer keeps its subjects bare (`namespace: ""`), as bare users are then that

@@ -282,31 +282,47 @@ def _is_packaged_model(model: str | None) -> bool:
 
     Copies count, too (e.g., of apps that copied a model before
     `foca:<file>` existed), as they match subjects in the same way. Files
-    are compared ignoring whitespace.
+    are compared ignoring whitespace and comments (cf.
+    :py:func:`_model_tokens`).
 
     Args:
         model: Path of the model (`access_control.model`, resolved); `None`
             for the default model.
 
     Returns:
-        Whether `model` is the default model, or a file with the content of
-        a model that FOCA ships.
+        Whether `model` is the default model, or a file with the definitions
+        of a model that FOCA ships.
     """
     if model is None:
         return True
     path = Path(model)
     if not path.is_file():
         return False
-    content = path.read_text(encoding="utf-8").split()
+    content = _model_tokens(path.read_text(encoding="utf-8"))
     packaged = files(ACCESS_CONTROL_BASE_PATH)
     return any(
-        content == packaged.joinpath(name).read_text(encoding="utf-8").split()
+        content == _model_tokens(packaged.joinpath(name).read_text(encoding="utf-8"))
         for name in (
             DEFAULT_MODEL_FILE,
             RESOURCE_ROLE_MODEL_FILE,
             GRANTED_RIGHTS_MODEL_FILE,
         )
     )
+
+
+def _model_tokens(text: str) -> list[str]:
+    """Get the tokens of a Casbin model, without whitespace and comments.
+
+    Args:
+        text: Text of the model; comments start with `#` and run to the end
+            of the line.
+
+    Returns:
+        Tokens of the definitions, split at whitespace.
+    """
+    return [
+        token for line in text.splitlines() for token in line.split("#", 1)[0].split()
+    ]
 
 
 def _check_group_config(

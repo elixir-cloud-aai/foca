@@ -1088,8 +1088,9 @@ class TestPolicyUsers:
         if copy:
             copied = tmp_path / "model.conf"
             text = files(ACCESS_CONTROL_BASE_PATH).joinpath(name).read_text()
-            # whitespace is ignored
-            copied.write_text(f"\n{text.replace(' = ', '  =  ')}\n\n")
+            # whitespace and comments are ignored
+            text = text.replace(" = ", "  =  ").replace("\n[", "\n# changed\n[")
+            copied.write_text(f"# copied from FOCA\n{text}  # end\n\n")
             model = str(copied)
         conf = AccessControlConfig(model=model, policies=[["g", "user:alice", "admin"]])
         with pytest.raises(ValueError, match=UNKNOWN_USERS):

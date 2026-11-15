@@ -147,7 +147,8 @@ class NamespacedUsers:
 
     Attributes:
         rewritten: Stored rules that are not configured, rewritten (or to
-            rewrite, in dry runs).
+            rewrite, in dry runs); rules changed or removed meanwhile, which
+            are not rewritten, don't count.
         configured: Configured rules, which are not rewritten.
         invalid: Stored rules that are not configured, kept as a
             namespaced user would not be a valid rule value.
@@ -973,16 +974,18 @@ class Adapter(persist.Adapter):
                 if _resource_role_key(document, changed.get("v0")) in resource_roles:
                     conflicting += 1
                     continue
-                rewritten += 1
-                if not dry_run:
-                    # Only if unchanged meanwhile; another run rewrites it
-                    self._collection.update_one(
-                        {
-                            "_id": document["_id"],
-                            **{field: document[field] for field in changed},
-                        },
-                        {"$set": changed},
-                    )
+                if dry_run:
+                    rewritten += 1
+                    continue
+                # Only if unchanged meanwhile, and only then counted; a later
+                # run rewrites it
+                rewritten += self._collection.update_one(
+                    {
+                        "_id": document["_id"],
+                        **{field: document[field] for field in changed},
+                    },
+                    {"$set": changed},
+                ).modified_count
         finally:
             if not dry_run:
                 self.mark_changed()
