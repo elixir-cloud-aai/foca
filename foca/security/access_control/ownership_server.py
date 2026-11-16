@@ -20,14 +20,15 @@ the group is the last one. Users, namespaced by issuer (e.g.,
 proxies that merge slashes would change them: in the request body to grant
 them a role (`{"user": "...", "role": "..."}`) and in query parameter `user`
 to revoke their roles. Resources without owners are not found, unless the
-caller is an admin and an existence check finds them, so that admins can assign the
-first owner of resources stored before an app adopted ownership. Who may call
-the endpoints is decided by the app's policies, which must be enforced on
-them, as the controllers do not check the caller themselves: apps routing operations
-that do not enforce policies to the controllers do not start, and requests on
-which policies were not enforced (e.g., via wrappers of the controllers, or
-routes added later) are refused. Requests and responses are logged unless
-disabled via config option `security.access_control.log_traffic`.
+caller is an admin and an existence check finds them, so that admins can
+assign the first owner of resources stored before an app adopted ownership.
+Who may call the endpoints is decided by the app's policies, which must be
+enforced on them, as the controllers do not check the caller themselves: apps
+routing operations that do not enforce policies to the controllers do not
+start, and requests on which policies were not enforced (e.g., via wrappers
+of the controllers, or routes added later) are refused. Requests and
+responses are logged unless disabled via config option
+`security.access_control.log_traffic`.
 
 The controllers take an optional existence check as `exists` (cf.
 :py:func:`putUserRole`) and request bodies as `body`, so neither may be the
@@ -202,10 +203,11 @@ def _check_user_route() -> None:
     the first owner, so such routes are refused rather than misapplied.
 
     Raises:
-        RuntimeError: The route ends with a path parameter.
+        RuntimeError: The route ends with a path parameter (possibly followed
+            by slashes), or the request was not routed via a URL rule.
     """
     route = _get_route()
-    if route.variables and route.variables[-1][2] == len(route.rule):
+    if route.variables and not route.rule[route.variables[-1][2] :].strip("/"):
         raise RuntimeError(
             f"Route '{route.rule}' of a controller for user roles ends with a "
             "path parameter: name the user in the request body or query "
@@ -507,7 +509,8 @@ def putUserRole(
     Raises:
         foca.errors.BadRequest: The body names no user or no role.
         RuntimeError: The route ends with a path parameter (e.g., the
-            user's, as before FOCA 0.23.0).
+            user's, as before FOCA 0.23.0) or has none identifying the
+            resource; served as `500`.
     """
     _check_user_route()
     user = _get_user_from_body(body)
@@ -521,9 +524,9 @@ def deleteUserRole(exists: Callable[[], bool] | None = None, **kwargs: Any) -> s
 
     The user is the value of query parameter `user`, read from the query
     string, as Connexion passes the caller as argument `user` on secured
-    operations, replacing the query parameter; declare the
-    parameter in the specification. The resource is taken from the route
-    (the path up to its last path parameter).
+    operations, replacing the query parameter; declare the parameter in the
+    specification. The resource is taken from the route (the path up to its
+    last path parameter).
 
     Args:
         exists: Function checking whether the resource exists, if an owner
@@ -538,8 +541,8 @@ def deleteUserRole(exists: Callable[[], bool] | None = None, **kwargs: Any) -> s
     Raises:
         foca.errors.BadRequest: The query names no user, an empty one, or
             several.
-        RuntimeError: The route ends with a path parameter (cf.
-            :py:func:`putUserRole`).
+        RuntimeError: The route ends with a path parameter or has none
+            identifying the resource (cf. :py:func:`putUserRole`).
     """
     _check_user_route()
     user = _get_user_from_query()

@@ -819,14 +819,17 @@ class TestRoutes:
         ):
             ownership_server._get_resource(with_subject=False)
 
-    def test_user_in_path_refused(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize("suffix", ["", "/"], ids=["plain", "trailing-slash"])
+    def test_user_in_path_refused(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, suffix: str
+    ) -> None:
         """Routes naming the user in the path, as before 0.23.0, are refused.
 
         Otherwise, the path up to the user would be taken as the resource,
         on which admins could grant the first owner.
         """
         spec = deepcopy(SPEC)
-        spec["paths"]["/tasks/{taskId}/permissions/users/{userId}"] = {
+        spec["paths"][f"/tasks/{{taskId}}/permissions/users/{{userId}}{suffix}"] = {
             "parameters": [_parameter("taskId"), _parameter("userId")],
             "put": _operation("putOldUserRole", __name__, requestBody=USER_ROLE_BODY),
             "delete": _operation("deleteOldUserRole", __name__),
@@ -835,15 +838,52 @@ class TestRoutes:
         with app.app_context():
             app.config["casbin_adapter"].save_policy_line(
                 ptype="p",
-                rule=["*", "/api/tasks/:id/permissions/users/:u", "(PUT)|(DELETE)"],
+                rule=["*", "/api/tasks/:id/permissions/users/*", "(PUT)|(DELETE)"],
             )
-        path = f"{USERS}/bob"
-        with mock.patch.object(ownership_server, "grant_role") as grant:
+        path = f"{USERS}/bob{suffix}"
+        with (
+            mock.patch.object(ownership_server, "grant_role") as grant,
+            mock.patch.object(ownership_server, "revoke_roles") as revoke,
+            caplog.at_level("ERROR"),
+        ):
             response = _call(app, "put", path, "carol", "owner", subject="bob")
             assert response.status_code == 500
+            response = _call(app, "delete", path, "alice", subject="bob")
+            assert response.status_code == 500
         grant.assert_not_called()
-        assert _call(app, "delete", path, "alice", subject="bob").status_code == 500
-        assert _roles(app, f"{USERS}/bob") == []
+        revoke.assert_not_called()
+        refusals = [r for r in caplog.records if "ends with a path" in r.getMessage()]
+        assert len(refusals) == 2
+
+    @pytest.mark.parametrize(
+        "path,refused",
+        [
+            ("/tasks/{taskId}/permissions/users", False),
+            ("/tasks/{taskId}/permissions/users/{userId}", True),
+            ("/tasks/{taskId}/permissions/users/{userId}/", True),
+            ("/tasks/{taskId}/permissions/users/{userId}/roles", False),
+        ],
+    )
+    def test_check_user_route(self, tmp_path: Path, path: str, refused: bool) -> None:
+        """Only routes ending in a path parameter (and slashes) are refused."""
+        spec = deepcopy(SPEC)
+        parameters = [_parameter("taskId")]
+        if "{userId}" in path:
+            parameters.append(_parameter("userId"))
+        spec["paths"] = {
+            path: {
+                "parameters": parameters,
+                "put": _operation("putUserRole", requestBody=USER_ROLE_BODY),
+            }
+        }
+        app = _create_app(tmp_path, spec)
+        request_path = "/api" + path.format(taskId="1", userId="bob")
+        with request_context(request_path, method="PUT", app=app):
+            if refused:
+                with pytest.raises(RuntimeError, match="ends with a path parameter"):
+                    ownership_server._check_user_route()
+            else:
+                ownership_server._check_user_route()
 
     def test_misconfigured_group_route(self, app: Flask) -> None:
         """Routes must identify the resource besides the group."""
