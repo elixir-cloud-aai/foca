@@ -60,13 +60,14 @@ TOKENS: dict[str, dict[str, Any]] = {
 
 POLICIES = [
     ("p", ["owner", "/api/tasks/:id/permissions", "GET"]),
-    # namespaced users and groups may contain slashes
-    ("p", ["owner", "/api/tasks/:id/permissions/users/*", "(PUT)|(DELETE)"]),
+    # users are named outside the path, so that rules need no `*`
+    ("p", ["owner", "/api/tasks/:id/permissions/users", "(PUT)|(DELETE)"]),
+    # groups may contain slashes
     ("p", ["owner", "/api/tasks/:id/permissions/groups/*", "(PUT)|(DELETE)"]),
     ("p", ["owner", "/api/projects/:p/files/:f/permissions", "GET"]),
-    ("p", ["owner", "/api/projects/:p/files/:f/permissions/users/:u", "PUT"]),
+    ("p", ["owner", "/api/projects/:p/files/:f/permissions/users", "PUT"]),
     # reaches the controller of a misconfigured route
-    ("p", ["*", "/api/permissions/users/:u", "PUT"]),
+    ("p", ["*", "/api/permissions/users", "PUT"]),
     ("g2", ["user:alice", "owner", TASK]),
     ("g2", ["user:alice", "owner", FILE]),
     # owner without group claim
@@ -119,6 +120,26 @@ ROLE_BODY = {
     },
 }
 
+# Users are named in the request body, as the controllers read them; not
+# required by the schema, so that the controllers' own checks are tested
+USER_ROLE_BODY = {
+    "required": True,
+    "content": {
+        "application/json": {
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "user": {"type": "string"},
+                    "role": {"type": "string"},
+                },
+            }
+        }
+    },
+}
+
+# ... and in the query to revoke their roles
+USER_QUERY = {"name": "user", "in": "query", "schema": {"type": "string"}}
+
 SPEC: dict[str, Any] = {
     "openapi": "3.0.2",
     "info": {"title": "Test API", "version": "1.0.0"},
@@ -136,14 +157,10 @@ SPEC: dict[str, Any] = {
                 ],
             ),
         },
-        "/tasks/{taskId}/permissions/users/{userId}": {
-            # namespaced users (several issuers) may contain slashes
-            "parameters": [
-                _parameter("taskId"),
-                _parameter("userId", format="path"),
-            ],
-            "put": _operation("putUserRole", requestBody=ROLE_BODY),
-            "delete": _operation("deleteUserRole"),
+        "/tasks/{taskId}/permissions/users": {
+            "parameters": [_parameter("taskId")],
+            "put": _operation("putUserRole", requestBody=USER_ROLE_BODY),
+            "delete": _operation("deleteUserRole", parameters=[USER_QUERY]),
         },
         "/tasks/{taskId}/permissions/groups/{group}": {
             # groups may contain slashes
@@ -155,14 +172,15 @@ SPEC: dict[str, Any] = {
             "parameters": [_parameter("p"), _parameter("f")],
             "get": _operation("getFileRoles", __name__),
         },
-        "/projects/{p}/files/{f}/permissions/users/{u}": {
-            "parameters": [_parameter("p"), _parameter("f"), _parameter("u")],
-            "put": _operation("putFileUserRole", __name__, requestBody=ROLE_BODY),
+        "/projects/{p}/files/{f}/permissions/users": {
+            "parameters": [_parameter("p"), _parameter("f")],
+            "put": _operation("putFileUserRole", __name__, requestBody=USER_ROLE_BODY),
         },
         # misconfigured: no path parameter identifies the resource
-        "/permissions/users/{userId}": {
-            "parameters": [_parameter("userId")],
-            "put": _operation("putUnidentifiedRole", __name__, requestBody=ROLE_BODY),
+        "/permissions/users": {
+            "put": _operation(
+                "putUnidentifiedRole", __name__, requestBody=USER_ROLE_BODY
+            ),
         },
     },
     "components": {
@@ -233,12 +251,36 @@ def app(tmp_path: Path) -> Flask:
 
 
 def _call(
-    app: Flask, method: str, path: str, user: str, role: str | None = None
+    app: Flask,
+    method: str,
+    path: str,
+    user: str,
+    role: str | None = None,
+    subject: str | None = None,
 ) -> Response:
-    """Call the test API as a user, with a role in the body, if given."""
+    """Call the test API as a user.
+
+    Args:
+        app: App.
+        method: HTTP method, in lower case.
+        path: Path of the request.
+        user: Caller, by bearer token (cf. `TOKENS`).
+        role: Role in the request body of `PUT` requests, if any.
+        subject: User to grant a role to or to revoke the roles of, named in
+            the request body of `PUT` requests and in the query of `DELETE`
+            requests, if any.
+
+    Returns:
+        The response.
+    """
     kwargs: dict[str, Any] = {"headers": {"Authorization": f"Bearer {user}"}}
     if method == "put":
-        kwargs["json"] = {} if role is None else {"role": role}
+        body = {} if role is None else {"role": role}
+        if subject is not None:
+            body["user"] = subject
+        kwargs["json"] = body
+    elif subject is not None:
+        kwargs["params"] = {"user": subject}
     response: Response = getattr(Client(app), method)(path, **kwargs)
     return response
 
@@ -465,13 +507,19 @@ class TestResourceRolesListing:
         assert 'rel="next"' not in response.headers["Link"]
 
 
+USERS = f"{TASK}/permissions/users"
+
+
 class TestUserRoles:
     """Tests for granting and revoking roles of users."""
 
     def test_grant_and_revoke(self, app: Flask) -> None:
-        """Owners grant and revoke roles of users."""
-        path = f"{TASK}/permissions/users/bob"
-        response = _call(app, "put", path, "alice", "maintainer")
+        """Owners grant and revoke roles of users named in body and query.
+
+        Connexion passes the caller to the controllers as `user`, too; the
+        user named in the query is the one whose roles are revoked.
+        """
+        response = _call(app, "put", USERS, "alice", "maintainer", subject="bob")
         assert response.status_code == 200
         assert response.json() == {
             "subject_type": "user",
@@ -479,23 +527,30 @@ class TestUserRoles:
             "role": "maintainer",
         }
         assert ResourceRole("user", "bob", "maintainer") in _roles(app)
-        response = _call(app, "delete", path, "alice")
+        response = _call(app, "delete", USERS, "alice", subject="bob")
         assert response.status_code == 200
         assert response.json() == "bob"
         assert _roles(app) == [ResourceRole("user", "alice", "owner")]
-        assert _call(app, "delete", path, "alice").status_code == 404
+        assert _call(app, "delete", USERS, "alice", subject="bob").status_code == 404
 
     def test_nested_resource(self, app: Flask) -> None:
         """Roles are granted on resources with several path parameters."""
-        path = "/api/projects/x/files/a%20b/permissions/users/bob"
-        assert _call(app, "put", path, "alice", "owner").status_code == 200
+        path = "/api/projects/x/files/a%20b/permissions/users"
+        response = _call(app, "put", path, "alice", "owner", subject="bob")
+        assert response.status_code == 200
         assert ResourceRole("user", "bob", "owner") in _roles(app, FILE)
 
     @pytest.mark.parametrize("role", ["admin", None])
     def test_invalid_role(self, app: Flask, role: str | None) -> None:
         """Only configured roles are granted."""
-        path = f"{TASK}/permissions/users/bob"
-        assert _call(app, "put", path, "alice", role).status_code == 400
+        response = _call(app, "put", USERS, "alice", role, subject="bob")
+        assert response.status_code == 400
+        assert _roles(app) == [ResourceRole("user", "alice", "owner")]
+
+    def test_missing_user(self, app: Flask) -> None:
+        """Requests must name a user."""
+        assert _call(app, "put", USERS, "alice", "owner").status_code == 400
+        assert _call(app, "delete", USERS, "alice").status_code == 400
         assert _roles(app) == [ResourceRole("user", "alice", "owner")]
 
     def test_refused_values_not_logged(
@@ -504,11 +559,13 @@ class TestUserRoles:
         """Refused grants are logged at INFO without the client's values.
 
         Neither in the message nor in the traceback of the response's
-        exception; the subject is still in the path of the request log.
+        exception.
         """
-        path = f"{TASK}/permissions/users/s3cr3t-user"
         with caplog.at_level("DEBUG", logger="foca"):
-            assert _call(app, "put", path, "alice", "s3cr3t-role").status_code == 400
+            response = _call(
+                app, "put", USERS, "alice", "s3cr3t-role", subject="s3cr3t-user"
+            )
+            assert response.status_code == 400
         logged = [
             (record.levelno, record.name, caplog.handler.format(record))
             for record in caplog.records
@@ -518,31 +575,36 @@ class TestUserRoles:
             for level, _, text in logged
             if level == logging.INFO
         )
-        assert not any(
-            "s3cr3t-role" in text for level, _, text in logged if level >= logging.INFO
-        )
-        assert any(
-            "s3cr3t-role" in text for level, _, text in logged if level == logging.DEBUG
-        )
+        for value in ["s3cr3t-role", "s3cr3t-user"]:
+            assert not any(
+                value in text for level, _, text in logged if level >= logging.INFO
+            )
+            assert any(
+                value in text for level, _, text in logged if level == logging.DEBUG
+            )
 
     def test_invalid_subject(self, app: Flask) -> None:
         """Subjects that cannot be stored in rules are rejected."""
-        path = f"{TASK}/permissions/users/a,b"
-        assert _call(app, "put", path, "alice", "owner").status_code == 400
-        assert _call(app, "delete", path, "alice").status_code == 404
+        assert _call(
+            app, "put", USERS, "alice", "owner", subject="a,b"
+        ).status_code == (400)
+        assert _call(app, "delete", USERS, "alice", subject="a,b").status_code == 404
 
     def test_last_owner(self, app: Flask) -> None:
         """The last owner can't be downgraded or removed."""
-        path = f"{TASK}/permissions/users/alice"
-        assert _call(app, "put", path, "alice", "maintainer").status_code == 409
-        assert _call(app, "delete", path, "alice").status_code == 409
+        response = _call(app, "put", USERS, "alice", "maintainer", subject="alice")
+        assert response.status_code == 409
+        response = _call(app, "delete", USERS, "alice", subject="alice")
+        assert response.status_code == 409
         assert _roles(app) == [ResourceRole("user", "alice", "owner")]
 
     def test_not_found(self, app: Flask) -> None:
         """Roles are not granted on resources without owners."""
-        path = "/api/tasks/2/permissions/users/bob"
-        assert _call(app, "put", path, "carol", "owner").status_code == 404
-        assert _call(app, "delete", path, "carol").status_code == 404
+        path = "/api/tasks/2/permissions/users"
+        assert _call(app, "put", path, "carol", "owner", subject="bob").status_code == (
+            404
+        )
+        assert _call(app, "delete", path, "carol", subject="bob").status_code == 404
         assert _roles(app, "/api/tasks/2") == []
 
     @pytest.mark.parametrize("subject_type", ["user", "group"])
@@ -552,7 +614,12 @@ class TestUserRoles:
         Apps pass existence checks via wrappers of the controllers.
         """
         put = getattr(ownership_server, f"put{subject_type.capitalize()}Role")
-        path = f"{TASK}/permissions/{subject_type}s/devs"
+        if subject_type == "user":
+            path = USERS
+            body = {"role": "maintainer", "user": "devs"}
+        else:
+            path = f"{TASK}/permissions/groups/devs"
+            body = {"role": "maintainer"}
         with request_context(path, method="PUT", app=app):
             setattr(g, _ENFORCED_MARK, request._get_current_object())  # type: ignore[attr-defined]
             # token info, as set by Connexion
@@ -560,16 +627,15 @@ class TestUserRoles:
                 "token_info": mock_token_info("alice")
             }
             with pytest.raises(NotFound):
-                put(body={"role": "maintainer"}, exists=lambda: False)
+                put(body=body, exists=lambda: False)
             assert ResourceRole(subject_type, "devs", "maintainer") not in _roles(app)
-            put(body={"role": "maintainer"}, exists=lambda: True)
+            put(body=body, exists=lambda: True)
         assert _roles(app)[-1] == ResourceRole(subject_type, "devs", "maintainer")
 
     def test_existence_checked_on_restore(self, app: Flask) -> None:
         """Owners restored on resources deleted meanwhile are revoked again."""
-        path = f"{TASK}/permissions/users/alice"
         with (
-            request_context(path, method="DELETE", app=app),
+            request_context(USERS, method="DELETE", app=app, params={"user": "alice"}),
             mock.patch.object(ownership, "_check_other_owners"),
             pytest.raises(NotFound),
         ):
@@ -598,9 +664,8 @@ class TestUserRoles:
         def fail() -> bool:
             raise RuntimeError("database not available")
 
-        path = f"{TASK}/permissions/users/alice"
         with (
-            request_context(path, method="DELETE", app=app),
+            request_context(USERS, method="DELETE", app=app, params={"user": "alice"}),
             mock.patch.object(ownership, "_check_other_owners"),
             pytest.raises(RuntimeError),
         ):
@@ -613,14 +678,15 @@ class TestUserRoles:
         def fail() -> bool:
             raise RuntimeError("database not available")
 
-        path = f"{TASK}/permissions/users/alice"
-        with request_context(path, method="PUT", app=app):
+        with request_context(USERS, method="PUT", app=app):
             # token info, as set by Connexion
             request_ctx.connexion_context = {  # type: ignore[attr-defined]
                 "token_info": mock_token_info("alice")
             }
             with pytest.raises(RuntimeError):
-                ownership_server.putUserRole(body={"role": "owner"}, exists=fail)
+                ownership_server.putUserRole(
+                    body={"role": "owner", "user": "alice"}, exists=fail
+                )
         assert _roles(app) == [ResourceRole("user", "alice", "owner")]
 
     def test_deleted_during_grant(self, app: Flask) -> None:
@@ -632,9 +698,9 @@ class TestUserRoles:
                 remove_resource(resource)
             return grant_role(resource, *args, **kwargs)
 
-        path = f"{TASK}/permissions/users/bob"
         with mock.patch.object(ownership_server, "grant_role", delete_then_grant):
-            assert _call(app, "put", path, "alice", "maintainer").status_code == 404
+            response = _call(app, "put", USERS, "alice", "maintainer", subject="bob")
+            assert response.status_code == 404
         assert _roles(app) == []
 
     @pytest.mark.parametrize("body", [None, [], "owner", {"role": 1}, {}])
@@ -643,30 +709,69 @@ class TestUserRoles:
         with pytest.raises(BadRequest):
             ownership_server._get_role(body)
 
+    @pytest.mark.parametrize(
+        "body", [None, [], "bob", {"user": 1}, {"user": ""}, {"role": "owner"}]
+    )
+    def test_body_without_user(self, body: Any) -> None:
+        """Bodies must be objects with a user (a non-empty string)."""
+        with pytest.raises(BadRequest, match="must name a user"):
+            ownership_server._get_user_from_body(body)
+
+    @pytest.mark.parametrize(
+        "params", [{}, {"user": ""}, [("user", "bob"), ("user", "carol")]]
+    )
+    def test_query_without_user(self, app: Flask, params: Any) -> None:
+        """Queries must name exactly one user, not empty."""
+        with (
+            request_context(USERS, method="DELETE", app=app, params=params),
+            pytest.raises(BadRequest, match="must name a user"),
+        ):
+            ownership_server._get_user_from_query()
+
+    def test_user_from_query(self, app: Flask) -> None:
+        """The user is taken from the query, not from arguments."""
+        with request_context(
+            USERS, method="DELETE", app=app, params={"user": "a/b|c?d&e=f%2F"}
+        ):
+            assert ownership_server._get_user_from_query() == "a/b|c?d&e=f%2F"
+
     def test_owner_granted_again(self, app: Flask) -> None:
         """Owners may be granted the owner role again."""
-        path = f"{TASK}/permissions/users/alice"
-        assert _call(app, "put", path, "alice", "owner").status_code == 200
+        response = _call(app, "put", USERS, "alice", "owner", subject="alice")
+        assert response.status_code == 200
         assert _roles(app) == [ResourceRole("user", "alice", "owner")]
 
 
 class TestNamespacedUsers:
     """Tests for users of several issuers, namespaced by issuer."""
 
-    def test_grant_and_revoke(self, tmp_path: Path) -> None:
-        """Namespaced users, containing slashes, are routed and kept apart."""
+    @pytest.mark.parametrize(
+        "user",
+        [
+            f"{OTHER_ISSUER}|alice",
+            # reserved characters and percent-encodings stay as they are
+            f"{OTHER_ISSUER}|a//b|c:d?e&f=g%2F#h",
+        ],
+        ids=["issuer", "reserved-characters"],
+    )
+    def test_grant_and_revoke(self, tmp_path: Path, user: str) -> None:
+        """Namespaced users, with slashes and `|`, are granted and revoked.
+
+        Without `format: path` routes or `*` in rules, also with the app's
+        URL map merging slashes (Werkzeug's default), as users are not in
+        the path.
+        """
         app = _create_app(
             tmp_path, issuers=[{"issuer": ISSUER, "namespace": ""}, OTHER_ISSUER]
         )
+        assert app.url_map.merge_slashes
         # the bare `user:alice` of the first issuer owns the task, the user of
         # the same subject of the other issuer does not
         assert _call(app, "get", f"{TASK}/permissions", "alice").status_code == 200
         assert (
             _call(app, "get", f"{TASK}/permissions", "other-alice").status_code == 403
         )
-        user = f"{OTHER_ISSUER}|alice"
-        path = f"{TASK}/permissions/users/{user}"
-        response = _call(app, "put", path, "alice", "maintainer")
+        response = _call(app, "put", USERS, "alice", "maintainer", subject=user)
         assert response.status_code == 200
         assert response.json() == {
             "subject_type": "user",
@@ -674,7 +779,7 @@ class TestNamespacedUsers:
             "role": "maintainer",
         }
         assert ResourceRole("user", user, "maintainer") in _roles(app)
-        response = _call(app, "delete", path, "alice")
+        response = _call(app, "delete", USERS, "alice", subject=user)
         assert response.status_code == 200
         assert response.json() == user
         assert _roles(app) == [ResourceRole("user", "alice", "owner")]
@@ -688,10 +793,20 @@ class TestRoutes:
 
     def test_misconfigured_route(self, app: Flask) -> None:
         """Routes must identify the resource by a path parameter."""
-        path = "/api/permissions/users/bob"
-        assert _call(app, "put", path, "alice", "owner").status_code == 500
+        path = "/api/permissions/users"
+        assert _call(app, "put", path, "alice", "owner", subject="bob").status_code == (
+            500
+        )
         with (
             request_context(path, method="PUT", app=app),
+            pytest.raises(RuntimeError, match="no path parameter"),
+        ):
+            ownership_server._get_resource(with_subject=False)
+
+    def test_misconfigured_group_route(self, app: Flask) -> None:
+        """Routes must identify the resource besides the group."""
+        with (
+            request_context(USERS, method="PUT", app=app),
             pytest.raises(RuntimeError, match="no path parameter"),
         ):
             ownership_server._get_resource(with_subject=True)
@@ -717,8 +832,8 @@ def _spec_with(path: str, method: str, **fields: Any) -> dict[str, Any]:
     return spec
 
 
-USER_ROLE = "/tasks/{taskId}/permissions/users/{userId}"
-USER_ROUTE = "PUT /api/tasks/<taskId>/permissions/users/<path:userId> (putUserRole)"
+USER_ROLE = "/tasks/{taskId}/permissions/users"
+USER_ROUTE = "PUT /api/tasks/<taskId>/permissions/users (putUserRole)"
 
 
 # Tasks that exist, as an app would know
@@ -782,8 +897,8 @@ class TestOwnerlessResources:
 
     def test_admin_grants_first_owner(self, wrapped: Flask) -> None:
         """Admins assign the first owner, who can then manage the resource."""
-        path = f"{OWNERLESS}/permissions/users/bob"
-        response = _call(wrapped, "put", path, "carol", "owner")
+        path = f"{OWNERLESS}/permissions/users"
+        response = _call(wrapped, "put", path, "carol", "owner", subject="bob")
         assert response.status_code == 200
         assert _roles(wrapped, OWNERLESS) == [ResourceRole("user", "bob", "owner")]
         response = _call(wrapped, "get", f"{OWNERLESS}/permissions", "bob")
@@ -798,8 +913,8 @@ class TestOwnerlessResources:
 
     def test_other_role_needs_owner(self, wrapped: Flask) -> None:
         """The first role is `owner`; others are refused as for any resource."""
-        path = f"{OWNERLESS}/permissions/users/bob"
-        response = _call(wrapped, "put", path, "carol", "maintainer")
+        path = f"{OWNERLESS}/permissions/users"
+        response = _call(wrapped, "put", path, "carol", "maintainer", subject="bob")
         assert response.status_code == 400
         assert _roles(wrapped, OWNERLESS) == []
 
@@ -809,23 +924,26 @@ class TestOwnerlessResources:
             wrapped.config["casbin_adapter"].save_policy_line(
                 ptype="g2", rule=["user:dave", "maintainer", OWNERLESS]
             )
-        path = f"{OWNERLESS}/permissions/users/dave"
+        path = f"{OWNERLESS}/permissions/users"
         response = _call(wrapped, "get", f"{OWNERLESS}/permissions", "carol")
         assert response.json() == [
             {"subject_type": "user", "subject": "dave", "role": "maintainer"}
         ]
-        assert _call(wrapped, "delete", path, "carol").status_code == 404
-        owner = f"{OWNERLESS}/permissions/users/bob"
-        assert _call(wrapped, "put", owner, "carol", "owner").status_code == 200
-        assert _call(wrapped, "delete", path, "carol").status_code == 200
+        response = _call(wrapped, "delete", path, "carol", subject="dave")
+        assert response.status_code == 404
+        response = _call(wrapped, "put", path, "carol", "owner", subject="bob")
+        assert response.status_code == 200
+        response = _call(wrapped, "delete", path, "carol", subject="dave")
+        assert response.status_code == 200
 
     @pytest.mark.parametrize("user", ["alice", "bob"])
     def test_others_forbidden(self, wrapped: Flask, user: str) -> None:
         """Others are refused by policies, as they have no role on it."""
         path = f"{OWNERLESS}/permissions"
         assert _call(wrapped, "get", path, user).status_code == 403
-        path = f"{OWNERLESS}/permissions/users/{user}"
-        assert _call(wrapped, "put", path, user, "owner").status_code == 403
+        path = f"{OWNERLESS}/permissions/users"
+        response = _call(wrapped, "put", path, user, "owner", subject=user)
+        assert response.status_code == 403
         assert _roles(wrapped, OWNERLESS) == []
 
     def test_non_admin_allowed_by_policies_not_found(self, tmp_path: Path) -> None:
@@ -852,16 +970,18 @@ class TestOwnerlessResources:
             _call(wrapped, "get", "/api/tasks/8/permissions", "carol").status_code
             == 404
         )
-        path = "/api/tasks/8/permissions/users/bob"
-        assert _call(wrapped, "put", path, "carol", "owner").status_code == 404
+        path = "/api/tasks/8/permissions/users"
+        response = _call(wrapped, "put", path, "carol", "owner", subject="bob")
+        assert response.status_code == 404
         assert _roles(wrapped, "/api/tasks/8") == []
 
     def test_without_existence_check_not_found(self, app: Flask) -> None:
         """Without an existence check, resources without owners aren't found."""
         path = f"{OWNERLESS}/permissions"
         assert _call(app, "get", path, "carol").status_code == 404
-        path = f"{OWNERLESS}/permissions/users/bob"
-        assert _call(app, "put", path, "carol", "owner").status_code == 404
+        path = f"{OWNERLESS}/permissions/users"
+        response = _call(app, "put", path, "carol", "owner", subject="bob")
+        assert response.status_code == 404
 
     def test_resource_with_roles_unchanged(self, wrapped: Flask) -> None:
         """Resources with owners work as before, without calling the check."""
@@ -885,8 +1005,9 @@ class TestOwnerlessResources:
             return len(calls) == 1
 
         with mock.patch(f"{__name__}._task_exists", return_value=_exists_once):
-            path = f"{OWNERLESS}/permissions/users/bob"
-            assert _call(wrapped, "put", path, "carol", "owner").status_code == 404
+            path = f"{OWNERLESS}/permissions/users"
+            response = _call(wrapped, "put", path, "carol", "owner", subject="bob")
+            assert response.status_code == 404
         assert _roles(wrapped, OWNERLESS) == []
 
 
@@ -910,7 +1031,7 @@ class TestEnforcementRequired:
         message = str(exc_info.value)
         assert USER_ROUTE in message
         assert "GET /api/tasks/<taskId>/permissions (getResourceRoles)" in message
-        assert "PUT /api/projects/<p>/files/<f>/permissions/users/<u>" in message
+        assert "PUT /api/projects/<p>/files/<f>/permissions/users " in message
 
     @pytest.mark.parametrize(
         "fields",
@@ -937,7 +1058,7 @@ class TestEnforcementRequired:
         with pytest.raises(ValueError, match="not enforced") as exc_info:
             _create_app(tmp_path, spec)
         message = str(exc_info.value)
-        assert "HEAD /api/tasks/<taskId>/permissions/users/<path:userId>" in message
+        assert "HEAD /api/tasks/<taskId>/permissions/users " in message
         assert "OPTIONS" not in message
 
     def test_request_refused(self, tmp_path: Path) -> None:
@@ -945,16 +1066,19 @@ class TestEnforcementRequired:
         spec = deepcopy(SPEC)
         spec["paths"] = {
             USER_ROLE: {
-                "parameters": [_parameter("taskId"), _parameter("userId")],
+                "parameters": [_parameter("taskId")],
                 "put": _operation(
-                    "putWrappedUserRole", __name__, requestBody=ROLE_BODY, security=[]
+                    "putWrappedUserRole",
+                    __name__,
+                    requestBody=USER_ROLE_BODY,
+                    security=[],
                 ),
             }
         }
         app = _create_app(tmp_path, spec)
-        path = f"{TASK}/permissions/users/mallory"
         with mock.patch.object(ownership_server.logger, "error") as error:
-            assert _call(app, "put", path, "mallory", "owner").status_code == 500
+            response = _call(app, "put", USERS, "mallory", "owner", subject="mallory")
+            assert response.status_code == 500
         assert "not enforced" in str(error.call_args)
         assert _roles(app) == [ResourceRole("user", "alice", "owner")]
 
@@ -964,9 +1088,10 @@ class TestEnforcementRequired:
             USER_ROLE, "put", operationId=f"{__name__}.putWrappedUserRole"
         )
         app = _create_app(tmp_path, spec)
-        path = f"{TASK}/permissions/users/bob"
-        assert _call(app, "put", path, "bob", "owner").status_code == 403
-        assert _call(app, "put", path, "alice", "owner").status_code == 200
+        response = _call(app, "put", USERS, "bob", "owner", subject="bob")
+        assert response.status_code == 403
+        response = _call(app, "put", USERS, "alice", "owner", subject="bob")
+        assert response.status_code == 200
         assert ResourceRole("user", "bob", "owner") in _roles(app)
 
     def test_unrouted_call(self, app: Flask) -> None:
@@ -975,7 +1100,7 @@ class TestEnforcementRequired:
             request_context("/unknown", method="PUT", app=app),
             pytest.raises(RuntimeError, match="not enforced"),
         ):
-            ownership_server.putUserRole(body={"role": "owner"})
+            ownership_server.putUserRole(body={"role": "owner", "user": "bob"})
 
 
 class TestGroupRoles:
@@ -1034,29 +1159,34 @@ class TestGroupRoles:
         assert _call(app, "put", missing, "carol", "owner").status_code == 404
         # the group is the last owner
         assert _call(app, "put", path, "alice", "owner").status_code == 200
-        user = f"{TASK}/permissions/users/alice"
-        assert _call(app, "delete", user, "alice").status_code == 200
+        response = _call(app, "delete", USERS, "alice", subject="alice")
+        assert response.status_code == 200
         assert _call(app, "put", path, "alice", "maintainer").status_code == 409
         assert _call(app, "delete", path, "alice").status_code == 409
 
 
 @pytest.mark.parametrize("log_traffic", [True, False])
 @pytest.mark.parametrize(
-    "method,path,role",
+    "method,path,role,subject",
     [
-        ("get", f"{TASK}/permissions", None),
-        ("put", f"{TASK}/permissions/users/bob", "maintainer"),
-        ("delete", f"{TASK}/permissions/users/bob", None),
-        ("put", f"{TASK}/permissions/groups/devs", "maintainer"),
-        ("delete", f"{TASK}/permissions/groups/devs", None),
+        ("get", f"{TASK}/permissions", None, None),
+        ("put", USERS, "maintainer", "bob"),
+        ("delete", USERS, None, "bob"),
+        ("put", f"{TASK}/permissions/groups/devs", "maintainer", None),
+        ("delete", f"{TASK}/permissions/groups/devs", None, None),
     ],
 )
 def test_traffic_logged(
-    app: Flask, log_traffic: bool, method: str, path: str, role: str | None
+    app: Flask,
+    log_traffic: bool,
+    method: str,
+    path: str,
+    role: str | None,
+    subject: str | None,
 ) -> None:
     """Controllers log traffic as the permissions API does, if enabled."""
     _get_app_config(app).security.access_control.log_traffic = log_traffic
     with mock.patch("foca.utils.logging.logger") as logger:
-        _call(app, method, path, "alice", role)
+        _call(app, method, path, "alice", role, subject=subject)
     messages = [str(call) for call in logger.log.call_args_list]
     assert any("Incoming request" in message for message in messages) is log_traffic

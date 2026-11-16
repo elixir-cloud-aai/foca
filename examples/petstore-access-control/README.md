@@ -57,7 +57,7 @@ change or remove single rules by name:
 | `list-add-pets` | `p, *, /pets, (GET)\|(POST)` | Any authenticated user may list and add pets. |
 | `owners-read-delete` | `p, owner, /pets/:id, (GET)\|(DELETE)` | Owners may view and delete their pets. |
 | `owners-list-roles` | `p, owner, /pets/:id/permissions, GET` | Owners may list the roles on their pets. |
-| `owners-manage-roles` | `p, owner, /pets/:id/permissions/users/*, (PUT)\|(DELETE)` | Owners may grant and revoke roles on their pets (users are namespaced by issuer, so they contain slashes). |
+| `owners-manage-roles` | `p, owner, /pets/:id/permissions/users, (PUT)\|(DELETE)` | Owners may grant and revoke roles on their pets (the user is named in the request body or query). |
 | `maintainers-read` | `p, maintainer, /pets/:id, GET` | Maintainers may view pets. |
 
 The [controllers][app-controllers] only manage ownership, with FOCA's
@@ -222,16 +222,16 @@ Alternatively, you can access the API endpoints programmatically, e.g., via
   ```
 
 * To **let user `bob` view a pet** (owners and admins only; `owner` would
-  make `bob` a co-owner); users are named with the namespace of their
-  issuer, by default the issuer:
+  make `bob` a co-owner); users are named in the request body, with the
+  namespace of their issuer, by default the issuer:
 
   ```console
   curl -X PUT \
       --header "Authorization: Bearer ${TOKEN}" \
       --header 'Accept: application/json' \
       --header 'Content-Type: application/json' \
-      -d '{"role":"maintainer"}' \
-      'http://localhost/pets/0/permissions/users/https://login.example.org/oidc/|bob'
+      -d '{"user":"https://login.example.org/oidc/|bob","role":"maintainer"}' \
+      'http://localhost/pets/0/permissions/users'
   ```
 
 * To **list the roles on a pet** (owners and admins only):
@@ -244,13 +244,15 @@ Alternatively, you can access the API endpoints programmatically, e.g., via
   ```
 
 * To **revoke the roles of user `bob` on a pet** (owners and admins only;
-  the last owner can't be removed):
+  the last owner can't be removed); the user is named in query parameter
+  `user`, which `--data-urlencode` percent-encodes:
 
   ```console
-  curl -X DELETE \
+  curl -G -X DELETE \
       --header "Authorization: Bearer ${TOKEN}" \
       --header 'Accept: application/json' \
-      'http://localhost/pets/0/permissions/users/https://login.example.org/oidc/|bob'
+      --data-urlencode 'user=https://login.example.org/oidc/|bob' \
+      'http://localhost/pets/0/permissions/users'
   ```
 
 The permissions API can only be used by admins:

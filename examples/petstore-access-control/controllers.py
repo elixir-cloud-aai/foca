@@ -184,7 +184,8 @@ def _pet_exists(id: int) -> Callable[[], bool]:
 
 
 # Roles on pets are managed by FOCA's ready-made controllers, which take the
-# pet and the user from the route; operations are routed to this module
+# pet from the route and the user from the request body (`PUT`) or query
+# parameter `user` (`DELETE`); operations are routed to this module
 # (`x-openapi-router-controller`), so via wrappers passing existence checks
 
 
