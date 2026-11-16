@@ -88,6 +88,8 @@ getFileRoles = ownership_server.getResourceRoles
 putFileUserRole = ownership_server.putUserRole
 putUnidentifiedRole = ownership_server.putUserRole
 headUserRole = ownership_server.putUserRole
+putOldUserRole = ownership_server.putUserRole
+deleteOldUserRole = ownership_server.deleteUserRole
 
 
 def _operation(
@@ -735,6 +737,20 @@ class TestUserRoles:
         ):
             assert ownership_server._get_user_from_query() == "a/b|c?d&e=f%2F"
 
+    def test_caller_argument_ignored(self, app: Flask) -> None:
+        """The caller, passed by Connexion as `user`, is not the user revoked.
+
+        As wrappers pass their arguments on, `user` holds the caller.
+        """
+        with app.app_context():
+            app.config["casbin_adapter"].save_policy_line(
+                ptype="g2", rule=["user:bob", "maintainer", TASK]
+            )
+        with request_context(USERS, method="DELETE", app=app, params={"user": "bob"}):
+            setattr(g, _ENFORCED_MARK, request._get_current_object())  # type: ignore[attr-defined]
+            assert ownership_server.deleteUserRole(user="alice", taskId="1") == "bob"
+        assert _roles(app) == [ResourceRole("user", "alice", "owner")]
+
     def test_owner_granted_again(self, app: Flask) -> None:
         """Owners may be granted the owner role again."""
         response = _call(app, "put", USERS, "alice", "owner", subject="alice")
@@ -802,6 +818,32 @@ class TestRoutes:
             pytest.raises(RuntimeError, match="no path parameter"),
         ):
             ownership_server._get_resource(with_subject=False)
+
+    def test_user_in_path_refused(self, tmp_path: Path) -> None:
+        """Routes naming the user in the path, as before 0.23.0, are refused.
+
+        Otherwise, the path up to the user would be taken as the resource,
+        on which admins could grant the first owner.
+        """
+        spec = deepcopy(SPEC)
+        spec["paths"]["/tasks/{taskId}/permissions/users/{userId}"] = {
+            "parameters": [_parameter("taskId"), _parameter("userId")],
+            "put": _operation("putOldUserRole", __name__, requestBody=USER_ROLE_BODY),
+            "delete": _operation("deleteOldUserRole", __name__),
+        }
+        app = _create_app(tmp_path, spec)
+        with app.app_context():
+            app.config["casbin_adapter"].save_policy_line(
+                ptype="p",
+                rule=["*", "/api/tasks/:id/permissions/users/:u", "(PUT)|(DELETE)"],
+            )
+        path = f"{USERS}/bob"
+        with mock.patch.object(ownership_server, "grant_role") as grant:
+            response = _call(app, "put", path, "carol", "owner", subject="bob")
+            assert response.status_code == 500
+        grant.assert_not_called()
+        assert _call(app, "delete", path, "alice", subject="bob").status_code == 500
+        assert _roles(app, f"{USERS}/bob") == []
 
     def test_misconfigured_group_route(self, app: Flask) -> None:
         """Routes must identify the resource besides the group."""

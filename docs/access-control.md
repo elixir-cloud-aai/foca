@@ -1480,12 +1480,16 @@ slashes (e.g., nginx's `merge_slashes`) or decode paths would change them,
 and routes and rules would need `format: path` and `*`. `putUserRole` takes
 the user from the request body (`user`), and `deleteUserRole` from the query
 parameter `user`, which clients percent-encode (e.g.,
-`?user=https%3A%2F%2Flogin.example.org%2Foidc%2F%7Calice`); a request
+`?user=https%3A%2F%2Flogin.example.org%2Foidc%2F%7Calice`; a literal `+`
+must be sent as `%2B`, as `+` is decoded as a space); a request
 without a user, with an empty one, or (in the query) with several is
 rejected with `400`. Declare both in the specification, as in the example
 below. `deleteUserRole` reads the parameter from the query string itself, as
-Connexion passes the caller as argument `user` to controllers; in wrappers,
-`kwargs["user"]` is the caller, not the user named in the query. The `PUT`
+Connexion passes the caller as argument `user` to controllers of secured
+operations, replacing the query parameter; in wrappers, `kwargs["user"]` may
+be either, so get the caller from `get_current_subject()`. The user
+controllers refuse routes ending in a path parameter (e.g., the user's, as
+before FOCA 0.23.0) with `500`, as they would take the wrong resource. The `PUT`
 operations take the role as `"role"` in the body; an `enum` of the role in
 the specification, as in the example below, rejects other roles before the
 controller is called, and should list the roles of `resource_roles`.

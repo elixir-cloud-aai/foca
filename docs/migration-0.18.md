@@ -111,7 +111,9 @@ issuer are not affected.
   and match them with `*` in rules (e.g.,
   `/api/tasks/:id/permissions/users/*`), as for groups. Proxies that merge
   slashes (e.g., nginx's `merge_slashes`) change such paths; set a
-  `namespace` without slashes then.
+  `namespace` without slashes then. FOCA 0.23.0 [names users outside the
+  path](migration-0.23.md#the-endpoints-for-managing-roles-name-users-outside-the-path)
+  instead.
 
 ### Validation details by default
 

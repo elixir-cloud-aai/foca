@@ -1,7 +1,8 @@
 # Migrating to 0.23.0
 
 FOCA 0.23.0 namespaces subjects by issuer also with a single trusted issuer,
-names users outside the path in the endpoints for managing roles, lets patches of API specifications remove keys, the permissions API reports
+names users outside the path in the endpoints for managing roles, lets
+patches of API specifications remove keys, the permissions API reports
 invalid fields, and the plugin store limits the size of each namespace. Apps
 and deployments need to change only if:
 
@@ -186,17 +187,19 @@ example](https://github.com/elixir-cloud-aai/foca/tree/dev/examples/petstore-acc
           - {name: user, in: query, required: true, schema: {type: string, minLength: 1}}
     ```
 
-    With the old routes, requests without `user` in the body or query are
-    rejected with `400`; with a user in the body or query, the controllers
-    would take the path up to the user as the resource, which has no owners
-    (`404`).
+    Operations still routed to the user controllers (or to aliases or
+    wrappers of them) under paths ending in a path parameter, such as the
+    user's, are refused with `500` (and a `RuntimeError` in the log), as the
+    controllers would otherwise take the path up to the user as the
+    resource.
 
 2. In the rules, match the new paths, without `*`, e.g.,
    `[p, owner, "/pets/:id/permissions/users", "(PUT)|(DELETE)"]` instead of
    `[p, owner, "/pets/:id/permissions/users/*", "(PUT)|(DELETE)"]`.
 3. In wrappers of the controllers, don't take the user from the arguments:
-   Connexion passes the caller as `user`, so `kwargs["user"]` is the caller,
-   not the user named in the query. Pass the arguments on as before.
+   on secured operations, Connexion passes the caller as `user`, replacing
+   the query parameter, so `kwargs["user"]` may be either. Pass the
+   arguments on as before, and get the caller from `get_current_subject()`.
 4. In clients, send the user in the body to grant a role, and percent-encoded
    in the query to revoke the roles, e.g.,
    `DELETE /pets/0/permissions/users?user=https%3A%2F%2Flogin.example.org%2Foidc%2F%7Cbob`.
