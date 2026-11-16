@@ -28,7 +28,7 @@ from foca.api.validation import (
     ParameterValidator,
     StrictParametersResolver,
 )
-from foca.config.access import _get_app_config
+from foca.config.access import _find_app_config, _get_app_config
 from foca.database.register_mongodb import (
     _register_database,
     get_mongo_client,
@@ -52,11 +52,17 @@ from foca.security.access_control.constants import (
     CHANGES_COLLECTION_SUFFIX,
     CONFIGURED_POLICIES_CHECK_TIMEOUT,
     DEFAULT_API_SPEC_PATH,
+    DEFAULT_MODEL_FILE,
+    GRANTED_RIGHTS_MODEL_FILE,
     GROUP_PREFIX,
     ME_API_SPEC_PATH,
+    RESOURCE_ROLE_MODEL_FILE,
 )
 from foca.security.access_control.enforcement import AccessControlResolver
-from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
+from foca.security.access_control.foca_casbin_adapter.adapter import (
+    Adapter,
+    unknown_user_pattern,
+)
 from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     validate_rule,
 )
@@ -98,7 +104,9 @@ def register_access_control(
             `access_control.require_admin` is set (cf.
             :py:func:`_check_admin_role`), or a role of
             `access_control.required_roles` doesn't exist (cf.
-            :py:func:`_check_required_roles`).
+            :py:func:`_check_required_roles`), or a configured policy rule
+            names a user that no trusted issuer has (cf.
+            :py:func:`_check_policy_users`).
     """
     auth_config = _get_app_config(cnx_app.app).security.auth
     check_access_control_config(access_control_config, auth_config)
@@ -186,11 +194,135 @@ def check_access_control_config(
             rule grants the role `admin` and `access_control.require_admin` is
             set (cf. :py:func:`_check_admin_role`), or a role of
             `access_control.required_roles` doesn't exist (cf.
-            :py:func:`_check_required_roles`).
+            :py:func:`_check_required_roles`), or a configured policy rule
+            names a user that no trusted issuer has (cf.
+            :py:func:`_check_policy_users`).
     """
     _check_group_config(access_control_config, auth_config)
+    _check_policy_users(access_control_config, auth_config)
     _check_admin_role(access_control_config, auth_config)
     _check_required_roles(access_control_config)
+
+
+def _check_policy_users(
+    access_control_config: AccessControlConfig, auth_config: AuthConfig
+) -> None:
+    """Check that configured policy rules name only users that issuers have.
+
+    Users are named in rules as `<subject_prefix><namespace>|<subject>`,
+    by default with the issuer as namespace, or without namespace for an
+    issuer that keeps its subjects bare (cf.
+    :py:func:`foca.security.auth.namespace_subject`). Rules naming other
+    users (e.g., bare users of an app that stored them before FOCA 0.23.0)
+    apply to nobody under the models that FOCA ships, so a missed migration
+    of, e.g., admin rules would go unnoticed. Custom models may match users
+    in other ways (e.g., `user:*` with `keyMatch`), so only a warning is
+    logged for them. The rules are named by their names if `policies` was
+    given as named rules, otherwise by their positions, but the users are
+    not named.
+
+    Args:
+        access_control_config: Access control configuration.
+        auth_config: Authentication configuration, for the namespaces of the
+            trusted issuers.
+
+    Raises:
+        ValueError: A configured policy rule names a user (a value starting
+            with `subject_prefix`) that no trusted issuer has, and the model
+            is one that FOCA ships, or a copy of one.
+    """
+    namespaces = list(auth_config.get_namespaces().values())
+    # Without namespaces (e.g., no trusted issuers), any subject is bare
+    if not any(namespaces):
+        return
+    pattern = re.compile(
+        unknown_user_pattern(access_control_config.subject_prefix, namespaces)
+    )
+    positions = [
+        index
+        for index, rule in enumerate(access_control_config.policies or [])
+        if any(isinstance(value, str) and pattern.match(value) for value in rule[1:])
+    ]
+    if not positions:
+        return
+    named = access_control_config.named_policies
+    if named is None:
+        rules = f"at positions {positions}"
+        counting = " (counting from 0)"
+    else:
+        names = list(named)
+        rules = ", ".join(f"'{names[index]}'" for index in positions)
+        counting = ""
+    prefix = access_control_config.subject_prefix
+    fix = (
+        f"name the users in these rules as '{prefix}<namespace>|<subject>', "
+        "where the namespace is the issuer unless set in "
+        "'security.auth.issuers[].namespace'. Alternatively, to keep the "
+        "subjects of one trusted issuer bare, set its "
+        "'security.auth.issuers[].namespace' to \"\"."
+    )
+    message = (
+        f"Configured policy rules {rules} of "
+        f"'security.access_control.policies'{counting} name users without "
+        "the namespace of a trusted issuer"
+    )
+    if not _is_packaged_model(access_control_config.model):
+        logger.warning(
+            "%s, so they apply to nobody unless the custom model matches users "
+            "in other ways. If they should apply, %s",
+            message,
+            fix,
+        )
+        return
+    raise ValueError(f"{message}, so they would apply to nobody. To fix this, {fix}")
+
+
+def _is_packaged_model(model: str | None) -> bool:
+    """Check whether a model is one that FOCA ships, or a copy of one.
+
+    Copies count, too (e.g., of apps that copied a model before
+    `foca:<file>` existed), as they match subjects in the same way. Files
+    are compared ignoring whitespace and comments (cf.
+    :py:func:`_model_tokens`).
+
+    Args:
+        model: Path of the model (`access_control.model`, resolved); `None`
+            for the default model.
+
+    Returns:
+        Whether `model` is the default model, or a file with the definitions
+        of a model that FOCA ships.
+    """
+    if model is None:
+        return True
+    path = Path(model)
+    if not path.is_file():
+        return False
+    content = _model_tokens(path.read_text(encoding="utf-8"))
+    packaged = files(ACCESS_CONTROL_BASE_PATH)
+    return any(
+        content == _model_tokens(packaged.joinpath(name).read_text(encoding="utf-8"))
+        for name in (
+            DEFAULT_MODEL_FILE,
+            RESOURCE_ROLE_MODEL_FILE,
+            GRANTED_RIGHTS_MODEL_FILE,
+        )
+    )
+
+
+def _model_tokens(text: str) -> list[str]:
+    """Get the tokens of a Casbin model, without whitespace and comments.
+
+    Args:
+        text: Text of the model; comments start with `#` and run to the end
+            of the line.
+
+    Returns:
+        Tokens of the definitions, split at whitespace.
+    """
+    return [
+        token for line in text.splitlines() for token in line.split("#", 1)[0].split()
+    ]
 
 
 def _check_group_config(
@@ -315,6 +447,48 @@ def _check_stored_group_subjects(
             "is set and 'security.access_control.keep_group_subjects' is not, "
             "so they don't apply to users via their group claims: set "
             "'keep_group_subjects: true' if they should."
+        )
+
+
+def _check_stored_users(
+    adapter: Adapter,
+    access_control_config: AccessControlConfig,
+    auth_config: AuthConfig,
+) -> None:
+    """Warn of stored rules naming users that no trusted issuer has.
+
+    Covers rules that are not configured, e.g., written via the permissions
+    API, or stored with bare users before FOCA 0.23.0; configured ones are
+    checked by :py:func:`_check_policy_users`. Only gives a hint, so startup
+    continues if the check fails.
+
+    Args:
+        adapter: Casbin adapter of the app.
+        access_control_config: Access control configuration.
+        auth_config: Authentication configuration, for the namespaces of the
+            trusted issuers.
+    """
+    namespaces = list(auth_config.get_namespaces().values())
+    if not any(namespaces):
+        return
+    prefix = access_control_config.subject_prefix
+    try:
+        with pymongo.timeout(CONFIGURED_POLICIES_CHECK_TIMEOUT):
+            stored = adapter.has_stored_unknown_users(prefix, namespaces)
+    except PyMongoError as exc:
+        logger.warning(
+            "Could not check for stored policy rules with unknown users: %s", exc
+        )
+        return
+    if stored:
+        logger.warning(
+            "Stored policy rules name users without the namespace of a "
+            "trusted issuer ('%s<namespace>|<subject>'), so they apply to "
+            "nobody, e.g., bare users stored before FOCA 0.23.0: namespace "
+            "them with 'foca namespace-subjects', or set "
+            "'security.auth.issuers[].namespace: \"\"' for the issuer whose "
+            "subjects they are.",
+            prefix,
         )
 
 
@@ -1010,6 +1184,16 @@ def sync_policies(app: Flask, access_control_config: AccessControlConfig) -> boo
             force=access_control_config.policies_force,
         )
     _check_stored_group_subjects(adapter, access_control_config)
+    # FOCA's apps have a configuration; apps set up by hand (e.g., in tests)
+    # may lack it, and with it the issuers whose namespaces are checked
+    config = _find_app_config(app)
+    if config is None:
+        logger.debug(
+            "Stored policy rules not checked for unknown users: no FOCA "
+            "configuration attached to the app."
+        )
+    else:
+        _check_stored_users(adapter, access_control_config, config.security.auth)
     return applied
 
 

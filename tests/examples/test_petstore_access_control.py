@@ -18,6 +18,9 @@ EXAMPLE_DIR = Path(__file__).parents[2] / "examples" / "petstore-access-control"
 ISSUER = "https://login.example.org/oidc/"
 # Service client of the example, allowed to act for users
 SERVICE_CLIENT = "pet-shop"
+# Users as named in policy rules and the permissions API: namespaced by issuer
+ALICE = f"{ISSUER}|alice"
+BOB = f"{ISSUER}|bob"
 
 
 def mock_validate_token(token: str) -> dict[str, Any]:
@@ -116,8 +119,8 @@ def test_unauthenticated(client: Client) -> None:
 def test_owners_manage_roles(client: Client) -> None:
     """Owners grant and revoke roles on their pets; others get 403."""
     url = _add_pet(client, "alice")
-    bob = f"{url}/permissions/users/bob"
-    alice = f"{url}/permissions/users/alice"
+    bob = f"{url}/permissions/users/{BOB}"
+    alice = f"{url}/permissions/users/{ALICE}"
 
     # only owners manage roles
     assert client.get(f"{url}/permissions", headers=_headers("bob")).status_code == 403
@@ -129,7 +132,7 @@ def test_owners_manage_roles(client: Client) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "subject_type": "user",
-        "subject": "bob",
+        "subject": BOB,
         "role": "maintainer",
     }
     assert _pet_ids(client, "bob") == [int(url.rsplit("/", 1)[1])]
@@ -138,8 +141,8 @@ def test_owners_manage_roles(client: Client) -> None:
     response = client.get(f"{url}/permissions", headers=_headers("alice"))
     assert response.status_code == 200
     assert response.json() == [
-        {"subject_type": "user", "subject": "alice", "role": "owner"},
-        {"subject_type": "user", "subject": "bob", "role": "maintainer"},
+        {"subject_type": "user", "subject": ALICE, "role": "owner"},
+        {"subject_type": "user", "subject": BOB, "role": "maintainer"},
     ]
 
     # the last owner can't be removed
@@ -160,12 +163,12 @@ def test_roles_on_deleted_pets(client: Client, monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(
         sys.modules["controllers"], "_pet_exists", lambda id: lambda: False
     )
-    bob = f"{url}/permissions/users/bob"
+    bob = f"{url}/permissions/users/{BOB}"
     response = client.put(bob, json={"role": "owner"}, headers=_headers("alice"))
     assert response.status_code == 404
     response = client.get(f"{url}/permissions", headers=_headers("alice"))
     assert response.json() == [
-        {"subject_type": "user", "subject": "alice", "role": "owner"}
+        {"subject_type": "user", "subject": ALICE, "role": "owner"}
     ]
 
 
