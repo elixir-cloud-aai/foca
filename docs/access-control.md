@@ -1292,9 +1292,12 @@ API, as policies are enforced on them; the collection path passed to
 `resource_filter()` must match the prefix of the paths passed to
 `add_owner()`. Revoke all roles on a deleted resource via `remove_resource()`.
 Apps that let owners manage access expose endpoints (e.g.,
-`PUT /tasks/{id}/permissions/users/{userId}`) calling `grant_role()` and
-`revoke_roles()`, or route them to FOCA's [ready-made
-controllers](#endpoints-for-managing-roles):
+`PUT /tasks/{id}/permissions/users`, naming the user in the request body)
+calling `grant_role()` and `revoke_roles()`, or route them to FOCA's
+[ready-made controllers](#endpoints-for-managing-roles). Name users in the
+request body or query rather than in the path: they are namespaced by issuer
+(e.g., `https://login.example.org/oidc/|alice`), and proxies that merge
+slashes or decode paths would change them in paths.
 
 ```python
 import logging
@@ -1308,13 +1311,13 @@ from foca.security.access_control import grant_role
 logger = logging.getLogger(__name__)
 
 
-def PutTaskUserRole(id, userId, body, **kwargs):
-    resource = request.path.removesuffix(f"/permissions/users/{userId}")
+def PutTaskUserRole(id, body, **kwargs):
+    resource = request.path.removesuffix("/permissions/users")
     tasks = get_collection(db="myDb", collection="tasks")
     try:
         grant_role(
             resource,
-            userId,
+            body["user"],
             body["role"],
             exists=lambda: tasks.count_documents({"id": id}) > 0,
         )
@@ -1332,7 +1335,7 @@ def PutTaskUserRole(id, userId, body, **kwargs):
                 )
             ]
         ) from None  # the cause quotes the values, also in logged tracebacks
-    return {"user_id": userId, "role": body["role"]}
+    return {"user": body["user"], "role": body["role"]}
 ```
 
 Such endpoints are enforced by policies such as `p, owner,
@@ -1457,24 +1460,35 @@ choice:
 | Controller | Example operation | Response |
 | --- | --- | --- |
 | `getResourceRoles` | `GET /tasks/{id}/permissions` | roles on the resource, as `subject_type`, `subject` and `role` (cf. `list_roles()`); paged and filtered on request (see below) |
-| `putUserRole` | `PUT /tasks/{id}/permissions/users/{userId}` | the granted role, replacing others (cf. `grant_role()`) |
-| `deleteUserRole` | `DELETE /tasks/{id}/permissions/users/{userId}` | the user identifier (a JSON string), after revoking their roles (cf. `revoke_roles()`) |
-| `putGroupRole` | `PUT /tasks/{id}/permissions/groups/{group}` | as `putUserRole`, for a group |
+| `putUserRole` | `PUT /tasks/{id}/permissions/users` with `{"user": "...", "role": "..."}` | the granted role, replacing others (cf. `grant_role()`) |
+| `deleteUserRole` | `DELETE /tasks/{id}/permissions/users?user=...` | the user identifier (a JSON string), after revoking their roles (cf. `revoke_roles()`) |
+| `putGroupRole` | `PUT /tasks/{id}/permissions/groups/{group}` with `{"role": "..."}` | as `putUserRole`, for a group |
 | `deleteGroupRole` | `DELETE /tasks/{id}/permissions/groups/{group}` | as `deleteUserRole`, for a group |
 
-The controllers take the resource and the subject from the route: the
-subject is the last path parameter, and the resource is the request path up to
-the path parameter before it (e.g., `/api/tasks/1` for
-`/api/tasks/1/permissions/users/alice`), or up to the last path parameter for
-`getResourceRoles`. Path parameters may have any names, and resources may be
-identified by several (e.g., `/projects/{p}/files/{f}/permissions`). The `PUT`
-operations take the role as `{"role": "maintainer"}`; an `enum` of the role in
+The controllers take the resource from the route: the request path up to its
+last path parameter (e.g., `/api/tasks/1` for `/api/tasks/1/permissions` and
+`/api/tasks/1/permissions/users`), or, for groups, up to the path parameter
+before the group, which is the last one (e.g., `/api/tasks/1` for
+`/api/tasks/1/permissions/groups/devs`). Path parameters may have any names,
+and resources may be identified by several (e.g.,
+`/projects/{p}/files/{f}/permissions`).
+
+Users are named outside the path, as they are [namespaced by
+issuer](authentication.md#several-trusted-issuers) (e.g.,
+`https://login.example.org/oidc/|alice`): in paths, proxies that merge
+slashes (e.g., nginx's `merge_slashes`) or decode paths would change them,
+and routes and rules would need `format: path` and `*`. `putUserRole` takes
+the user from the request body (`user`), and `deleteUserRole` from the query
+parameter `user`, which clients percent-encode (e.g.,
+`?user=https%3A%2F%2Flogin.example.org%2Foidc%2F%7Calice`); a request
+without a user, with an empty one, or (in the query) with several is
+rejected with `400`. Declare both in the specification, as in the example
+below. `deleteUserRole` reads the parameter from the query string itself, as
+Connexion passes the caller as argument `user` to controllers; in wrappers,
+`kwargs["user"]` is the caller, not the user named in the query. The `PUT`
+operations take the role as `"role"` in the body; an `enum` of the role in
 the specification, as in the example below, rejects other roles before the
-controller is called, and should list the roles of `resource_roles`. Keep
-users and groups apart in the paths (e.g., `.../users/{userId}` and
-`.../groups/{group}`): with users at `.../permissions/{userId}` next to
-`.../permissions/groups/{group}`, `PUT .../permissions/groups` would grant a
-role to a user called `groups`.
+controller is called, and should list the roles of `resource_roles`.
 
 * Resources without owners are not found (`404`), so that roles cannot be
   granted on resources that do not exist. Admins are the exception if an
@@ -1560,11 +1574,10 @@ paths:
         - {name: offset, in: query, schema: {type: integer, minimum: 0}}
       responses:
         "200": {description: Roles on the task}
-  /tasks/{id}/permissions/users/{userId}:
+  # users, namespaced by issuer, are named in the body and the query
+  /tasks/{id}/permissions/users:
     parameters:
       - {name: id, in: path, required: true, schema: {type: string}}
-      # users, namespaced by issuer, may contain slashes
-      - {name: userId, in: path, required: true, schema: {type: string, format: path}}
     put:
       operationId: foca.security.access_control.ownership_server.putUserRole
       requestBody:
@@ -1573,13 +1586,16 @@ paths:
           application/json:
             schema:
               type: object
-              required: [role]
+              required: [user, role]
               properties:
+                user: {type: string, minLength: 1}
                 role: {type: string, enum: [owner, maintainer]}
       responses:
         "200": {description: Granted role}
     delete:
       operationId: foca.security.access_control.ownership_server.deleteUserRole
+      parameters:
+        - {name: user, in: query, required: true, schema: {type: string, minLength: 1}}
       responses:
         "200": {description: Roles revoked}
   /tasks/{id}/permissions/groups/{group}:
@@ -1611,8 +1627,8 @@ security:
   access_control:
     policies:
       - [p, owner, "/api/tasks/:id/permissions", GET]
-      # namespaced users and groups may contain slashes
-      - [p, owner, "/api/tasks/:id/permissions/users/*", "(PUT)|(DELETE)"]
+      - [p, owner, "/api/tasks/:id/permissions/users", "(PUT)|(DELETE)"]
+      # groups may contain slashes
       - [p, owner, "/api/tasks/:id/permissions/groups/*", "(PUT)|(DELETE)"]
 ```
 
@@ -1652,8 +1668,9 @@ exists:
 
 * `GET .../permissions` lists its roles: none yet, or leftovers that don't make
   anyone an owner (e.g., of a maintainer).
-* `PUT .../permissions/users/{userId}` and `.../groups/{group}` with
-  `{"role": "owner"}` assign the first owner. As on all resources, other
+* `PUT .../permissions/users` with `{"user": "...", "role": "owner"}` and
+  `PUT .../permissions/groups/{group}` with `{"role": "owner"}` assign the
+  first owner. As on all resources, other
   roles need an owner first (`400`).
 
 Everyone else still gets `403` from the policies, or `404` if policies let them
