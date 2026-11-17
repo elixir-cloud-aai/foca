@@ -15,8 +15,10 @@ A gateway request has three legs and one decision (cf. the phases of
 """
 
 import copy
+import hashlib
 from collections.abc import Iterator, Mapping, MutableMapping
 from dataclasses import dataclass, field
+from functools import cached_property
 from typing import Any, Literal
 
 # Headers that the engine never hands to plugins as headers: credentials of
@@ -264,6 +266,88 @@ class Principal:
             object.__setattr__(self, "subject_type", "user")
 
 
+@dataclass(frozen=True, repr=False)
+class Attachment:
+    """File of a request, e.g., a `workflow_attachment` of a WES run.
+
+    An immutable value: plugins add, replace or remove attachments in the
+    list of the payload (cf. :py:mod:`foca.plugins.wes`), but cannot change
+    one in place. Copies of requests share their attachments, so that the
+    contents are not copied per hook call.
+
+    Attributes:
+        filename: Relative path of the file in the run's directory, e.g.,
+            `workflows/main.cwl`; the gateway checks it (cf.
+            :py:func:`foca.plugins.wes.check_filename`).
+        content: Content of the file.
+        media_type: Media type of the file, e.g., `text/plain`.
+
+    Examples:
+        >>> attachment = Attachment("main.cwl", b"class: Workflow", "text/plain")
+        >>> attachment
+        Attachment(filename='main.cwl', media_type='text/plain', size=15)
+    """
+
+    filename: str
+    content: bytes
+    media_type: str = "application/octet-stream"
+
+    def __post_init__(self) -> None:
+        """Check the types of the fields.
+
+        Raises:
+            TypeError: The filename or media type is no string, or the
+                content no bytes.
+        """
+        if not isinstance(self.filename, str):
+            raise TypeError("Attachment filenames are strings")
+        if not isinstance(self.content, bytes):
+            raise TypeError("Attachment contents are bytes")
+        if not isinstance(self.media_type, str):
+            raise TypeError("Attachment media types are strings")
+
+    @property
+    def size(self) -> int:
+        """Get the size of the content.
+
+        Returns:
+            Size in bytes.
+        """
+        return len(self.content)
+
+    @cached_property
+    def digest(self) -> str:
+        """Get the digest of the content, computed once.
+
+        Returns:
+            `sha256:` and the hex digest of the content.
+        """
+        return f"sha256:{hashlib.sha256(self.content).hexdigest()}"
+
+    def __repr__(self) -> str:
+        """Represent the attachment.
+
+        Returns:
+            Representation, with the size of the content instead of the
+            content.
+        """
+        return (
+            f"Attachment(filename={self.filename!r},"
+            f" media_type={self.media_type!r}, size={self.size})"
+        )
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> "Attachment":
+        """Deep-copy the attachment: it is immutable, so it is shared.
+
+        Args:
+            memo: Objects copied so far.
+
+        Returns:
+            The attachment itself.
+        """
+        return self
+
+
 @dataclass
 class InboundRequest:
     """Request of a client to the gateway, after its security checks.
@@ -276,7 +360,9 @@ class InboundRequest:
         query: Query parameters, each with its values in order.
         headers: Headers, without credentials (cf. `CREDENTIAL_HEADERS`).
         media_type: Media type of the body, without parameters.
-        payload: Parsed body, e.g., the task of `POST /tasks` (a `dict`).
+        payload: Parsed body, e.g., the task of TES `POST /tasks` (a
+            `dict`), or the form fields and attachments of WES `POST /runs`
+            (a `dict`, cf. :py:mod:`foca.plugins.wes`).
     """
 
     method: str

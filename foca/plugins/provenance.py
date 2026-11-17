@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 from urllib.parse import urlsplit, urlunsplit
 
 from foca.plugins.loader import LoadedPlugin
-from foca.plugins.model import CREDENTIAL_HEADERS
+from foca.plugins.model import CREDENTIAL_HEADERS, Attachment
 
 if TYPE_CHECKING:  # pragma: no cover (types only; the engine imports this module)
     from foca.plugins.engine import PipelineRun
@@ -304,7 +304,8 @@ def _snapshot(phase: str, value: Any, secret_headers: frozenset[str]) -> Any:
 
     Returns:
         Data of the phase: method, path, query, headers (without
-        credentials and secret headers) and payload of requests; the
+        credentials and secret headers) and payload of requests (with
+        attachments as their descriptions); the
         client's part of responses; candidate identifiers. The credential
         type of outbound requests (`auth`) is left out, as hashes of short
         values can be guessed.
@@ -324,7 +325,48 @@ def _snapshot(phase: str, value: Any, secret_headers: frozenset[str]) -> Any:
         "path": value.path,
         "query": value.query,
         "headers": _headers(value.headers, excluded),
-        "payload": value.payload,
+        "payload": _described_files(value.payload),
+    }
+
+
+def _described_files(payload: Any) -> Any:
+    """Replace the attachments of a payload by their descriptions.
+
+    Args:
+        payload: Payload.
+
+    Returns:
+        The payload; if it is a mapping, with each
+        :py:class:`foca.plugins.model.Attachment` in its arrays (e.g., WES
+        `workflow_attachment`) replaced by its filename, media type, size
+        and digest, so that the hashes of changes cover the contents
+        without hashing them again per call.
+    """
+    if not isinstance(payload, Mapping):
+        return payload
+    return {
+        key: [_described_file(item) for item in value] if _is_array(value) else value
+        for key, value in payload.items()
+    }
+
+
+def _described_file(value: Any) -> Any:
+    """Describe an attachment.
+
+    Args:
+        value: Attachment, or another value.
+
+    Returns:
+        Filename, media type, size and digest of an attachment; other
+        values unchanged.
+    """
+    if not isinstance(value, Attachment):
+        return value
+    return {
+        "filename": value.filename,
+        "media_type": value.media_type,
+        "size": value.size,
+        "digest": value.digest,
     }
 
 

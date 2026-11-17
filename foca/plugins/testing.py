@@ -37,6 +37,7 @@ from foca.plugins.engine import PipelineRun, PluginHost
 from foca.plugins.errors import NoBackendAvailable, PipelineRejected
 from foca.plugins.loader import LoadedPlugin
 from foca.plugins.model import (
+    Attachment,
     Backend,
     BackendResponse,
     Headers,
@@ -46,6 +47,7 @@ from foca.plugins.model import (
 )
 from foca.plugins.records import Execution
 from foca.plugins.store import Store
+from foca.plugins.wes import ATTACHMENT_FIELD
 from foca.utils.http import (
     _METHOD,
     AddressNotAllowed,
@@ -135,36 +137,98 @@ def make_principal(
     )
 
 
+SAMPLE_CWL = (
+    b'cwlVersion: v1.2\nclass: CommandLineTool\nbaseCommand: "true"\n'
+    b"inputs: []\noutputs: []\n"
+)
+"""Content of the workflow of :py:func:`make_run_request`."""
+
+
+def make_run_request(
+    workflow_url: str = "main.cwl",
+    *,
+    workflow_type: str = "CWL",
+    workflow_type_version: str = "v1.2",
+    workflow_params: Mapping[str, Any] | None = None,
+    tags: Mapping[str, str] | None = None,
+    attachments: Iterable[Attachment] | None = None,
+    **fields: Any,
+) -> dict[str, Any]:
+    """Build the payload of a WES run request, as plugins get it.
+
+    Args:
+        workflow_url: URL of the workflow, or the filename of an attachment.
+        workflow_type: Type of the workflow.
+        workflow_type_version: Version of the workflow type.
+        workflow_params: Parameters of the workflow; none by default.
+        tags: Tags; none by default.
+        attachments: Attachments; by default, `main.cwl` with
+            :py:data:`SAMPLE_CWL` (pass `[]` for none, e.g., with a
+            `workflow_url` of a remote workflow).
+        fields: Other form fields, e.g., `workflow_engine`.
+
+    Returns:
+        Run request (cf. :py:mod:`foca.plugins.wes`).
+    """
+    if attachments is None:
+        attachments = [Attachment("main.cwl", SAMPLE_CWL, "text/plain")]
+    return {
+        "workflow_url": workflow_url,
+        "workflow_type": workflow_type,
+        "workflow_type_version": workflow_type_version,
+        "workflow_params": dict(workflow_params or {}),
+        "tags": dict(tags or {}),
+        **fields,
+        ATTACHMENT_FIELD: list(attachments),
+    }
+
+
 def make_inbound(
     payload: Any = UNSET,
     *,
+    api: str = "tes",
     method: str = "POST",
-    path: str = "/ga4gh/tes/v1/tasks",
-    route: str = "/tasks",
+    path: str | None = None,
+    route: str | None = None,
     headers: Mapping[str, str] | None = None,
     query: Mapping[str, list[str]] | None = None,
+    media_type: str | None = None,
 ) -> InboundRequest:
     """Build an inbound request.
 
     Args:
-        payload: Payload (`None` for none); defaults to a minimal TES task.
+        payload: Payload (`None` for none); defaults to a minimal TES task,
+            or for `api="wes"` to a WES run with an attached workflow (cf.
+            :py:func:`make_run_request`).
+        api: API of the request: `wes` for a WES run (`POST /runs`, as
+            `multipart/form-data`), otherwise a TES task (`POST /tasks`).
         method: HTTP method.
-        path: Path of the request.
-        route: Route of the API operation.
+        path: Path of the request; defaults to that of the API's operation.
+        route: Route of the API operation; defaults to that of the API's
+            operation.
         headers: Headers.
         query: Query parameters.
+        media_type: Media type of the body; defaults to that of the API's
+            operation.
 
     Returns:
         Inbound request.
     """
-    if payload is UNSET:
-        payload = {"executors": [{"image": "alpine", "command": ["true"]}]}
+    if api == "wes":
+        defaults = ("/ga4gh/wes/v1/runs", "/runs", "multipart/form-data")
+        if payload is UNSET:
+            payload = make_run_request()
+    else:
+        defaults = ("/ga4gh/tes/v1/tasks", "/tasks", "application/json")
+        if payload is UNSET:
+            payload = {"executors": [{"image": "alpine", "command": ["true"]}]}
     return InboundRequest(
         method=method,
-        path=path,
-        route=route,
+        path=defaults[0] if path is None else path,
+        route=defaults[1] if route is None else route,
         headers=Headers(headers or {}),
         query=dict(query or {}),
+        media_type=defaults[2] if media_type is None else media_type,
         payload=payload,
     )
 
@@ -710,7 +774,8 @@ class PluginHarness:
         """Start a run.
 
         Args:
-            inbound: Inbound request; defaults to `make_inbound()`.
+            inbound: Inbound request; defaults to `make_inbound()` of the
+                harness's API.
             principal: Caller; defaults to `make_principal()`.
             kwargs: Other arguments of
                 :py:meth:`foca.plugins.PluginHost.start`.
@@ -720,7 +785,9 @@ class PluginHarness:
         """
         kwargs.setdefault("request_id", "test-request")
         run = self.host.start(
-            inbound or make_inbound(), principal or make_principal(), **kwargs
+            inbound or make_inbound(api=self.host.api),
+            principal or make_principal(),
+            **kwargs,
         )
         self._local.run = run
         return run
@@ -733,7 +800,8 @@ class PluginHarness:
         """Run the `request` phase.
 
         Args:
-            inbound: Inbound request; defaults to `make_inbound()`.
+            inbound: Inbound request; defaults to `make_inbound()` of the
+                harness's API.
             principal: Caller; defaults to `make_principal()`.
 
         Returns:
@@ -753,7 +821,8 @@ class PluginHarness:
 
         Args:
             candidates: Candidates; default to backends `a`, `b` and `c`.
-            inbound: Inbound request; defaults to `make_inbound()`.
+            inbound: Inbound request; defaults to `make_inbound()` of the
+                harness's API.
             principal: Caller; defaults to `make_principal()`.
             request: Whether to run the `request` phase first.
 
@@ -777,7 +846,8 @@ class PluginHarness:
 
         Args:
             backend: Backend; defaults to `make_backend()`.
-            inbound: Inbound request; defaults to `make_inbound()`.
+            inbound: Inbound request; defaults to `make_inbound()` of the
+                harness's API.
             principal: Caller; defaults to `make_principal()`.
             request: Whether to run the `request` phase first.
 
@@ -809,7 +879,8 @@ class PluginHarness:
             response: Response of the backend; defaults to
                 `make_response()`.
             backend: Backend; defaults to `make_backend()`.
-            inbound: Inbound request; defaults to `make_inbound()`.
+            inbound: Inbound request; defaults to `make_inbound()` of the
+                harness's API.
             principal: Caller; defaults to `make_principal()`.
             request: Whether to run the `request` phase first.
 
@@ -1035,7 +1106,8 @@ def check_plugin_contract(
         params: Parameters for the checks.
         api: API of the app.
         plugin_id: Identifier of the plugin.
-        inbound: Sample inbound request; defaults to `make_inbound()`.
+        inbound: Sample inbound request; defaults to
+            `make_inbound(api=api)`.
         candidates: Sample candidates; default to backends `a`, `b`, `c`.
         response: Sample response; defaults to `make_response()`.
         http: Fake HTTP client with the responses the plugin needs.
