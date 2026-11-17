@@ -51,8 +51,9 @@ security:
             list-add-pets: [p, "*", /pets, "(GET)|(POST)"]
             owners-read-delete: [p, owner, "/pets/:id", "(GET)|(DELETE)"]
             owners-list-roles: [p, owner, "/pets/:id/permissions", GET]
+            # users are namespaced by issuer, so they may contain slashes
             owners-manage-roles:
-                [p, owner, "/pets/:id/permissions/users/:userId", "(PUT)|(DELETE)"]
+                [p, owner, "/pets/:id/permissions/users/*", "(PUT)|(DELETE)"]
             maintainers-read: [p, maintainer, "/pets/:id", GET]
         # Serve Swagger UI and specification of the permissions API
         api_swagger_ui: True

@@ -580,6 +580,27 @@ class ProvenanceConfig(_Model):
     secret_headers: list[str] = []
 
 
+class AttachmentsConfig(_Model):
+    """Limits of the files of gateway requests (`plugins.attachments`).
+
+    The files are those of WES runs (`workflow_attachment`, cf.
+    :py:mod:`foca.plugins.wes`), which the gateway holds in memory: the
+    engine checks the limits after each hook that got a run, and apps
+    check the client's request against them before the plugins run.
+
+    Args:
+        max_count: Maximum number of files of a request.
+        max_size: Maximum total size of the files of a request, in bytes.
+
+    Attributes:
+        max_count: Maximum number of files of a request.
+        max_size: Maximum total size of the files of a request, in bytes.
+    """
+
+    max_count: PositiveInt = 256
+    max_size: PositiveInt = 32 * 1024 * 1024
+
+
 class PluginsConfig(_Model):
     """Gateway plugins: allowlist and pipelines (FOCA config section `plugins`).
 
@@ -598,6 +619,8 @@ class PluginsConfig(_Model):
         client_backends: Backends chosen by clients per request.
         tags: Reserved tags of gateway requests.
         provenance: Provenance of gateway requests.
+        attachments: Limits of the files of gateway requests (e.g., WES
+            `workflow_attachment`).
         gateway_id: Name of this gateway in `Via` headers (RFC 9110,
             section 7.6.3), which detect routing loops: a host name or IPv4
             address, or an IPv6 address in brackets, with an optional port;
@@ -613,6 +636,7 @@ class PluginsConfig(_Model):
         client_backends: Backends chosen by clients per request.
         tags: Reserved tags of gateway requests.
         provenance: Provenance of gateway requests.
+        attachments: Limits of the files of gateway requests.
         gateway_id: Name of this gateway in `Via` headers, if set.
 
     Examples:
@@ -634,6 +658,7 @@ class PluginsConfig(_Model):
     client_backends: ClientBackendsConfig = ClientBackendsConfig()
     tags: TagsConfig = TagsConfig()
     provenance: ProvenanceConfig = ProvenanceConfig()
+    attachments: AttachmentsConfig = AttachmentsConfig()
     gateway_id: str | None = Field(default=None, pattern=GATEWAY_ID_PATTERN)
 
     @field_validator("available")

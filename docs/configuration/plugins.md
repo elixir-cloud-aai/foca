@@ -76,6 +76,9 @@ plugins:
   provenance:
     record_failed: false     # store records of failed runs (audit)
     secret_headers: []       # left out of change hashes, besides credentials
+  attachments:               # files of WES runs (`workflow_attachment`)
+    max_count: 256           # files per run
+    max_size: 33554432       # bytes per run, all files together (32 MiB)
   gateway_id: protes.example.org          # default: host[:port] of server.public_url
 ```
 
@@ -318,6 +321,18 @@ The size limit counts bytes of keys and values, not memory or storage:
 entries take several times their counted size in the memory of a process
 (about three times for small entries) and in the database (with indexes).
 Size the memory of processes and the database accordingly.
+
+## Attachments
+
+WES gateways hold the files of a run (`workflow_attachment`) in memory, and
+plugins may add files (e.g., a workflow fetched from a TRS). `attachments`
+limits the number of files of a run (`max_count`, default 256) and their
+total size (`max_size`, in bytes, default 32 MiB): apps check the client's
+run against them before the plugins run, and the engine after each plugin
+that got the run, which fails if the run exceeds them (cf. [WES
+requests](../plugins.md#wes-requests)). Keep the request body limit of the
+web server (e.g., Flask's `MAX_CONTENT_LENGTH`) in line, and the limits of
+plugins that add files at or below these.
 
 ## Migrating from middlewares
 

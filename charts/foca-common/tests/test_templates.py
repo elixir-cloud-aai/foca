@@ -3074,6 +3074,21 @@ def test_plugins_only_in_config(chart_with_settings: Callable[[str], Path]) -> N
     }
 
 
+def test_plugins_attachments(chart_with_settings: Callable[[str], Path]) -> None:
+    """The limits of the files of WES runs get the keys of the config."""
+    chart = chart_with_settings(_gateway_settings("plugins: true"))
+    docs = index(
+        template(
+            chart,
+            "--set-json",
+            'plugins={"attachments":{"maxCount":1,"maxSize":2}}',
+        )
+    )
+    assert _overlay(docs)["plugins"] == {
+        "attachments": {"max_count": 1, "max_size": 2},
+    }
+
+
 def test_store_key_secret_in_plugin_values_fails(
     chart_with_settings: Callable[[str], Path],
 ) -> None:
