@@ -61,8 +61,23 @@ jwt.decode(TOKEN, options=none_options)
 none_dict = dict(verify_signature=None)  # noqa: C408
 # ruleid: jwt-decode-without-verification
 jwt.decode(TOKEN, options=none_dict)
+# ruleid: jwt-decode-without-verification
+jwt.decode(TOKEN, options={"verify_signature": 0.0})
+# ruleid: jwt-decode-without-verification
+jwt.decode(TOKEN, verify="")
+# ruleid: jwt-decode-without-verification
+jwt.decode(TOKEN, options=dict(verify_signature=""))  # noqa: C408
+VERIFY = False
+# ruleid: jwt-decode-without-verification
+jwt.decode(TOKEN, options={"verify_signature": VERIFY})
+# ruleid: jwt-decode-without-verification
+jwt.decode(TOKEN, verify=VERIFY)
 # ok: jwt-decode-without-verification
 jwt.decode(TOKEN, KEY, algorithms=["RS256"], options={"verify_signature": True})
+# ok: jwt-decode-without-verification
+jwt.decode(TOKEN, KEY, algorithms=["RS256"], options={"verify_signature": "yes"})
+# ok: jwt-decode-without-verification
+jwt.decode(TOKEN, KEY, algorithms=["RS256"], verify=1)
 # ok: jwt-decode-without-verification
 jwt.decode(TOKEN, KEY, algorithms=["RS256"], options={"verify_aud": False})
 # ok: jwt-decode-without-verification
@@ -102,9 +117,29 @@ none_algorithms = ["RS256", "NONE"]
 jwt.decode(TOKEN, KEY, algorithms=none_algorithms)
 # ruleid: jwt-decode-unsafe-algorithms
 jwt.decode(TOKEN, KEY, algorithms={"none"})
-kid = header["kid"]
-# ok: jwt-decode-unsafe-algorithms
-jwt.decode(TOKEN, {"key": KEY}[kid], algorithms=["RS256"])
+
+
+def decode_with_header_algorithm(token: str) -> dict:
+    """Decode a token with the algorithm that its header names."""
+    alg = jwt.get_unverified_header(token)["alg"]
+    # ruleid: jwt-decode-unsafe-algorithms
+    return jwt.decode(token, KEY, algorithms=[alg])
+
+
+def decode_with_key_algorithm(token: str, jwks: dict) -> dict:
+    """Decode a token with the algorithm of the key that its header names."""
+    jwk = jwks[jwt.get_unverified_header(token)["kid"]]
+    # ok: jwt-decode-unsafe-algorithms
+    return jwt.decode(token, jwk.key, algorithms=[jwk.algorithm_name])
+
+
+def decode_without_none(token: str, algorithms: set[str]) -> dict:
+    """Decode a token with the given algorithms, but `none`."""
+    allowed = algorithms - {"none"}
+    # ok: jwt-decode-unsafe-algorithms
+    return jwt.decode(token, KEY, algorithms=list(allowed))
+
+
 # ok: jwt-decode-unsafe-algorithms
 jwt.decode(TOKEN, KEY, algorithms=["none-of-these"])
 # ok: jwt-decode-unsafe-algorithms
@@ -157,8 +192,18 @@ request = session.prepare_request(requests.Request("GET", "https://example.org")
 session.send(request, verify=False, timeout=10)
 # ruleid: tls-verification-disabled
 requests.Session().post("https://example.org", verify=False, timeout=10)
+# Also flagged by ruff (S501), which is suppressed here
 # ruleid: tls-verification-disabled
 requests.get("https://example.org", verify=False, timeout=10)  # noqa: S501
+# ruleid: tls-verification-disabled
+session.put("https://example.org", verify="", timeout=10)
+TLS_VERIFY = False
+# ruleid: tls-verification-disabled
+session.patch("https://example.org", verify=TLS_VERIFY, timeout=10)
+# ruleid: tls-verification-disabled
+session.verify = TLS_VERIFY
+# ok: tls-verification-disabled
+session.get("https://example.org", verify=None, timeout=10)
 # ok: tls-verification-disabled
 session.verify = "/etc/ssl/certs/ca-certificates.crt"
 # ok: tls-verification-disabled

@@ -42,10 +42,16 @@ rules:
                       $OPTIONS = dict(..., verify_signature=$OFF, ...)
                       ...
               - pattern: $JWT.$DECODE(..., options=$OPTIONS, ...)
-      # Falsy literals, which PyJWT treats alike
-      - metavariable-regex:
+      # Falsy values, which PyJWT treats alike; patterns rather than a regex,
+      # so that constants assigned before (e.g., `VERIFY = False`) match too
+      - metavariable-pattern:
           metavariable: $OFF
-          regex: ^(False|None|0|0\.0|""|'')$
+          pattern-either:
+            - pattern: "False"
+            - pattern: "None"
+            - pattern: "0"
+            - pattern: "0.0"
+            - pattern: '""'
       # `decode()` and `decode_complete()` of `jwt` and `jwt.PyJWT()` (also
       # imported under other names)
       - metavariable-regex:
@@ -58,13 +64,23 @@ rules:
       JWTs must be verified with a fixed list of signature algorithms: not
       with `none`, and not with the algorithm that the token's header names
     # Taint mode, so that values reach `algorithms` also through variables
-    # (e.g., `alg = header["alg"]`) and collections (within a function)
+    # (e.g., `alg = header["alg"]`) and collections. Taint is tracked within
+    # a function only (not into helpers, nor from module constants into
+    # functions). An `alg` from the header that is checked against an
+    # allowlist is still reported: pass the allowlist itself instead
     mode: taint
+    options:
+      # Values looked up with a tainted key (e.g., `jwks[header["kid"]]`)
+      # come from the server, not from the token
+      taint_assume_safe_indexes: true
     pattern-sources:
       # The unverified header, and anything taken from it
       - pattern: jwt.get_unverified_header(...)
-      # The algorithm `none`, in any case
+      # Any string literal `none`, in any case
       - pattern: '"=~/^[nN][oO][nN][eE]$/"'
+    pattern-sanitizers:
+      # `none` removed from a set of algorithms
+      - pattern: '$ALGORITHMS - {..., "=~/^[nN][oO][nN][eE]$/", ...}'
     pattern-sinks:
       - patterns:
           - pattern: $JWT.$DECODE(..., algorithms=$ALGORITHMS, ...)
@@ -97,16 +113,24 @@ rules:
       Certificate verification must not be disabled; configure a CA bundle
       instead (`verify` may name its path)
     # ruff flags `verify=False` in calls of the requests module, not
-    # `verify=0`, and neither in calls on sessions (e.g., `session.get()`)
-    pattern-either:
-      - pattern: $SESSION.verify = False
-      - pattern: $SESSION.verify = 0
-      - pattern: requests.$METHOD(..., verify=0, ...)
-      - patterns:
-          - pattern-either:
-              - pattern: $X.$METHOD(..., verify=False, ...)
-              - pattern: $X.$METHOD(..., verify=0, ...)
-          # The request methods of requests' sessions and of the module
-          - metavariable-regex:
-              metavariable: $METHOD
-              regex: ^(get|post|put|patch|delete|head|options|request|send)$
+    # `verify=0`, and neither in calls on sessions (e.g., `session.get()`).
+    # requests skips the check for any falsy `verify` but `None`, which
+    # means the session's default
+    patterns:
+      - pattern-either:
+          - pattern: $SESSION.verify = $OFF
+          # Any function of the requests module
+          - pattern: requests.$FUNCTION(..., verify=$OFF, ...)
+          - patterns:
+              - pattern: $X.$METHOD(..., verify=$OFF, ...)
+              # The request methods of requests' sessions (and of the
+              # module, and of similar clients)
+              - metavariable-regex:
+                  metavariable: $METHOD
+                  regex: ^(get|post|put|patch|delete|head|options|request|send)$
+      - metavariable-pattern:
+          metavariable: $OFF
+          pattern-either:
+            - pattern: "False"
+            - pattern: "0"
+            - pattern: '""'

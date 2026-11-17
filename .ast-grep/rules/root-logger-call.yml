@@ -4,14 +4,18 @@ severity: error
 message: Message logged with the root logger
 note: |
   Log with the module's logger (`logger = logging.getLogger(__name__)`), so
-  that apps can configure FOCA's log messages by logger name.
+  that log messages can be configured by logger name.
 rule:
   any:
     - pattern: logging.$METHOD($$$ARGS)
+    - pattern: logging.root.$METHOD($$$ARGS)
     - pattern: logging.getLogger().$METHOD($$$ARGS)
+    # Before the positional form, which also matches `name=...` as `$NAME`
+    # (constraints are checked on the first pattern that matches)
+    - pattern: logging.getLogger(name=$NAME).$METHOD($$$ARGS)
     - pattern: logging.getLogger($NAME).$METHOD($$$ARGS)
 constraints:
   NAME:
-    regex: ^(None|""|'')$
+    regex: ^(None|""|''|"root"|'root')$
   METHOD:
     regex: ^(debug|info|warning|warn|error|exception|critical|fatal|log)$
