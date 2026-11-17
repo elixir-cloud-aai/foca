@@ -3,10 +3,9 @@
 # `verify=False` as an argument of requests calls; `yaml-unsafe-load` and
 # `tls-verification-disabled` cover the variants it misses. Test cases are in
 # `foca.py` and `foca.test.yaml` (`cd .semgrep && semgrep --test .`); the
-# scoping by `paths` can't be tested there. The rules `flask-debug-enabled`
-# and `jwt-decode-without-verification` are shared with FOCA apps (e.g.,
-# Cloud Registry): keep their patterns, messages and severities identical
-# there; `paths` are per repository
+# scoping by `paths` can't be tested there. The rules and their tests are
+# shared with FOCA apps (proTES, proWES, trs-filer, Cloud Registry): keep them
+# identical there; `paths` are per repository
 rules:
   - id: flask-debug-enabled
     languages: [generic]
@@ -29,30 +28,32 @@ rules:
     message: >-
       Access tokens must be verified; use FOCA's `validate_token()` for
       tokens of callers
-    # `False` or `0`, which PyJWT treats alike
     patterns:
       - pattern-either:
-          - pattern: '$JWT.$DECODE(..., options={..., "verify_signature": False, ...}, ...)'
-          - pattern: '$JWT.$DECODE(..., options={..., "verify_signature": 0, ...}, ...)'
-          - pattern: "$JWT.$DECODE(..., options=dict(..., verify_signature=False, ...), ...)"
-          - pattern: "$JWT.$DECODE(..., options=dict(..., verify_signature=0, ...), ...)"
-          - pattern: "$JWT.$DECODE(..., verify=False, ...)"
-          - pattern: "$JWT.$DECODE(..., verify=0, ...)"
+          - pattern: '$JWT.$DECODE(..., options={..., "verify_signature": $OFF, ...}, ...)'
+          - pattern: "$JWT.$DECODE(..., options=dict(..., verify_signature=$OFF, ...), ...)"
+          - pattern: "$JWT.$DECODE(..., verify=$OFF, ...)"
           - patterns:
               - pattern-either:
                   - pattern-inside: |
-                      $OPTIONS = {..., "verify_signature": False, ...}
+                      $OPTIONS = {..., "verify_signature": $OFF, ...}
                       ...
                   - pattern-inside: |
-                      $OPTIONS = {..., "verify_signature": 0, ...}
-                      ...
-                  - pattern-inside: |
-                      $OPTIONS = dict(..., verify_signature=False, ...)
-                      ...
-                  - pattern-inside: |
-                      $OPTIONS = dict(..., verify_signature=0, ...)
+                      $OPTIONS = dict(..., verify_signature=$OFF, ...)
                       ...
               - pattern: $JWT.$DECODE(..., options=$OPTIONS, ...)
+      # Falsy values, which PyJWT treats alike; patterns rather than a regex,
+      # so that constants assigned before (e.g., `VERIFY = False`) match too
+      - metavariable-pattern:
+          metavariable: $OFF
+          pattern-either:
+            - pattern: "False"
+            - pattern: "None"
+            - pattern: "0"
+            - pattern: "0.0"
+            - pattern: '""'
+            - pattern: "[]"
+            - pattern: "{}"
       # `decode()` and `decode_complete()` of `jwt` and `jwt.PyJWT()` (also
       # imported under other names)
       - metavariable-regex:
@@ -64,32 +65,31 @@ rules:
     message: >-
       JWTs must be verified with a fixed list of signature algorithms: not
       with `none`, and not with the algorithm that the token's header names
-    patterns:
-      - pattern-either:
-          - patterns:
-              - pattern-either:
-                  - pattern: $JWT.$DECODE(..., algorithms=[..., $ALG, ...], ...)
-                  - pattern: $JWT.$DECODE(..., algorithms=(..., $ALG, ...), ...)
-                  - pattern: $JWT.$DECODE(..., algorithms={..., $ALG, ...}, ...)
-              - metavariable-regex:
-                  metavariable: $ALG
-                  regex: (?i)^['"]none['"]$
-          - pattern: $JWT.$DECODE(..., algorithms=[..., jwt.get_unverified_header(...)[...], ...], ...)
-          - pattern: $JWT.$DECODE(..., algorithms=[..., jwt.get_unverified_header(...).get(...), ...], ...)
-          - pattern: $JWT.$DECODE(..., algorithms=jwt.get_unverified_header(...)[...], ...)
-          - pattern: $JWT.$DECODE(..., algorithms=jwt.get_unverified_header(...).get(...), ...)
-          - patterns:
-              - pattern-inside: |
-                  $HEADER = jwt.get_unverified_header(...)
-                  ...
-              - pattern-either:
-                  - pattern: $JWT.$DECODE(..., algorithms=[..., $HEADER[...], ...], ...)
-                  - pattern: $JWT.$DECODE(..., algorithms=[..., $HEADER.get(...), ...], ...)
-                  - pattern: $JWT.$DECODE(..., algorithms=$HEADER[...], ...)
-                  - pattern: $JWT.$DECODE(..., algorithms=$HEADER.get(...), ...)
-      - metavariable-regex:
-          metavariable: $DECODE
-          regex: ^decode(_complete)?$
+    # Taint mode, so that values reach `algorithms` also through variables
+    # (e.g., `alg = header["alg"]`) and collections. Taint is tracked within
+    # a function only (not into helpers, nor from module constants into
+    # functions). An `alg` from the header that is checked against an
+    # allowlist is still reported: pass the allowlist itself instead
+    mode: taint
+    options:
+      # Values looked up with a tainted key (e.g., `jwks[header["kid"]]`)
+      # come from the server, not from the token
+      taint_assume_safe_indexes: true
+    pattern-sources:
+      # The unverified header, and anything taken from it
+      - pattern: jwt.get_unverified_header(...)
+      # Any string literal `none`, in any case, also where it is removed from
+      # a set (e.g., `algorithms - {"none"}`, reported too): an exception
+      # can't tell which operand holds it, and a sanitizer would also clear
+      # the header's taint
+      - pattern: '"=~/^[nN][oO][nN][eE]$/"'
+    pattern-sinks:
+      - patterns:
+          - pattern: $JWT.$DECODE(..., algorithms=$ALGORITHMS, ...)
+          - metavariable-regex:
+              metavariable: $DECODE
+              regex: ^decode(_complete)?$
+          - focus-metavariable: $ALGORITHMS
   - id: yaml-unsafe-load
     languages: [python]
     severity: ERROR
@@ -114,8 +114,40 @@ rules:
     message: >-
       Certificate verification must not be disabled; configure a CA bundle
       instead (`verify` may name its path)
-    # ruff flags `verify=False` in calls of requests, not `verify=0`
+    # ruff flags `verify=False` in calls of the requests module, not
+    # `verify=0`, and neither in calls on sessions (e.g., `session.get()`).
+    # requests skips the check for any falsy `verify`; `None` in a call
+    # means the session's default, but as the session's setting, no check
     pattern-either:
-      - pattern: $SESSION.verify = False
-      - pattern: $SESSION.verify = 0
-      - pattern: requests.$METHOD(..., verify=0, ...)
+      - patterns:
+          - pattern: $SESSION.verify = $OFF
+          - metavariable-pattern:
+              metavariable: $OFF
+              pattern-either:
+                - pattern: "False"
+                - pattern: "None"
+                - pattern: "0"
+                - pattern: "0.0"
+                - pattern: '""'
+                - pattern: "[]"
+                - pattern: "{}"
+      - patterns:
+          - pattern-either:
+              # Any function of the requests module
+              - pattern: requests.$FUNCTION(..., verify=$OFF, ...)
+              - patterns:
+                  - pattern: $X.$METHOD(..., verify=$OFF, ...)
+                  # The request methods of requests' sessions (and of the
+                  # module, and of similar clients)
+                  - metavariable-regex:
+                      metavariable: $METHOD
+                      regex: ^(get|post|put|patch|delete|head|options|request|send)$
+          - metavariable-pattern:
+              metavariable: $OFF
+              pattern-either:
+                - pattern: "False"
+                - pattern: "0"
+                - pattern: "0.0"
+                - pattern: '""'
+                - pattern: "[]"
+                - pattern: "{}"
