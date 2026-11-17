@@ -440,10 +440,11 @@ reviews.
   anti-patterns (rules in `.ast-grep/`, e.g., the root logger or `print()` in
   the package), each rule with tests (`.semgrep/foca.py` and
   `.semgrep/foca.test.yaml`, `.ast-grep/rule-tests/`). Rules shared with FOCA
-  apps (e.g., Cloud Registry) are kept identical there, except for the files
-  they apply to (and, for `flask-import`, the severity, see below). Suppress a
-  false positive with `# nosemgrep: <rule-id>` or `# ast-grep-ignore:
-  <rule-id>` on the line before, with the reason in a comment.
+  apps (proTES, proWES, trs-filer, Cloud Registry) are kept identical there,
+  with their tests, except for the files they apply to (and, for
+  `flask-import`, the severity, see below). Suppress a false positive with
+  `# nosemgrep: <rule-id>` or `# ast-grep-ignore: <rule-id>` on the line
+  before, with the reason in a comment.
 - **No new Flask internals:** FOCA is moving to Connexion 3 on ASGI, without
   Flask. The ast-grep rule `no-new-flask-internals` (severity `error`) fails on
   imports of Flask and its extensions, Werkzeug, Connexion's Flask modules, and
