@@ -17,7 +17,7 @@ Fields that the client did not send are absent. Apps build the payload
 from the multipart request (`parse_run_request()`), check it
 (`check_run_request()`) before the plugins run, and turn it back into a
 multipart request when forwarding it (`run_request_form()`). After each
-`request` and `forward` hook of a WES gateway that changed a run, the
+`request` and `forward` hook of a WES gateway that got a run, the
 engine checks it (`check_run_request()`, with the limits of
 `plugins.attachments`): output with unsafe filenames, or more or larger
 files than allowed, counts as invalid.
@@ -240,7 +240,7 @@ def check_attachments(
         InvalidRunRequest: The attachments are no list, or an item is no
             attachment, has an unsafe filename (cf. :py:func:`check_filename`)
             or an invalid media type, or names a file twice, or as a
-            directory of another file too (`400`).
+            directory of another file, or inside another file (`400`).
     """
     _check_files(attachments, limits or AttachmentsConfig())
 
@@ -314,8 +314,8 @@ def parse_run_request(
 
     Raises:
         InvalidRunRequest: A JSON field is no valid JSON or no object,
-            another field no string, `workflow_attachment` is a text field,
-            or an attachment is no :py:class:`foca.plugins.model.Attachment`.
+            another field no string, or `workflow_attachment` is a text
+            field.
     """
     payload: dict[str, Any] = {}
     for name, value in fields.items():
@@ -332,11 +332,7 @@ def parse_run_request(
             if not isinstance(parsed, dict):
                 raise InvalidRunRequest(f"{name}: no JSON object")
         payload[name] = parsed
-    files = list(attachments)
-    for index, attachment in enumerate(files):
-        if type(attachment) is not Attachment:
-            raise InvalidRunRequest(f"{ATTACHMENT_FIELD}[{index}]: no Attachment")
-    payload[ATTACHMENT_FIELD] = files
+    payload[ATTACHMENT_FIELD] = list(attachments)
     return payload
 
 

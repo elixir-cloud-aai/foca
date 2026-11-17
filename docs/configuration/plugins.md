@@ -329,7 +329,7 @@ plugins may add files (e.g., a workflow fetched from a TRS). `attachments`
 limits the number of files of a run (`max_count`, default 256) and their
 total size (`max_size`, in bytes, default 32 MiB): apps check the client's
 run against them before the plugins run, and the engine after each plugin
-that changed the run, which fails if it exceeds them (cf. [WES
+that got the run, which fails if the run exceeds them (cf. [WES
 requests](../plugins.md#wes-requests)). Keep the request body limit of the
 web server (e.g., Flask's `MAX_CONTENT_LENGTH`) in line, and the limits of
 plugins that add files at or below these.

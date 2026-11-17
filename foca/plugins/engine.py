@@ -1533,7 +1533,7 @@ class PipelineRun:
         if self.host.api == "wes" and isinstance(given, Mapping):
             check_run_request(payload, self.host.conf.attachments)
 
-    def _check_forward(
+    def _check_forward_output(
         self, candidate: OutboundRequest, given: OutboundRequest
     ) -> OutboundRequest:
         """Check the output of a `forward` hook.
@@ -1543,12 +1543,10 @@ class PipelineRun:
             given: Outbound request given to the hook.
 
         Returns:
-            The outbound request (cf.
-            :py:func:`foca.plugins.checks._check_forward`).
+            The outbound request, as checked by `foca.plugins.checks`.
 
         Raises:
-            Exception: The output is invalid (cf.
-                :py:func:`foca.plugins.checks._check_forward` and
+            Exception: The output is invalid (cf. `foca.plugins.checks` and
                 :py:meth:`_check_run`).
         """
         self._check_run(candidate.payload, given.payload)
@@ -1675,7 +1673,7 @@ class PipelineRun:
                 outbound = self._run_phase(
                     "forward",
                     build(backend, self.inbound),
-                    check=self._check_forward,
+                    check=self._check_forward_output,
                     deadline=budget_end,
                     attempt=number,
                 )

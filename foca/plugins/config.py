@@ -585,7 +585,7 @@ class AttachmentsConfig(_Model):
 
     The files are those of WES runs (`workflow_attachment`, cf.
     :py:mod:`foca.plugins.wes`), which the gateway holds in memory: the
-    engine checks the limits after each plugin that changed a run, and apps
+    engine checks the limits after each hook that got a run, and apps
     check the client's request against them before the plugins run.
 
     Args:

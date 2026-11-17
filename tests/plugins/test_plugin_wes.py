@@ -313,8 +313,10 @@ def test_parse_run_request() -> None:
     for fields, message in cases:
         with pytest.raises(InvalidRunRequest, match=message):
             parse_run_request(fields)
+    # attachments are checked by check_run_request, not parsed
+    unchecked = parse_run_request({}, [b"a"])  # type: ignore[list-item]
     with pytest.raises(InvalidRunRequest, match="no Attachment"):
-        parse_run_request({}, [b"a"])  # type: ignore[list-item]
+        check_run_request(unchecked)
 
 
 def test_run_request_form() -> None:

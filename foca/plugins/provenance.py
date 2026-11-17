@@ -305,8 +305,8 @@ def _snapshot(phase: str, value: Any, secret_headers: frozenset[str]) -> Any:
     Returns:
         Data of the phase: method, path, query, headers (without
         credentials and secret headers) and payload of requests (with
-        attachments as their descriptions); the
-        client's part of responses; candidate identifiers. The credential
+        attachments in top-level arrays as their descriptions); the client's
+        part of responses; candidate identifiers. The credential
         type of outbound requests (`auth`) is left out, as hashes of short
         values can be guessed.
     """

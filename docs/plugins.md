@@ -349,7 +349,7 @@ After each `request` and `forward` hook of a WES gateway that got a run,
 the engine checks the run, as it re-validates payloads: output whose fields
 have the wrong types, whose attachments are no list of `Attachment`s, or
 that has an unsafe filename, a filename twice (or as a directory of another
-file), an invalid media type, or more files or bytes than
+file, or inside another file), an invalid media type, or more files or bytes than
 [`plugins.attachments`](configuration/plugins.md#attachments) allows,
 counts as invalid (`invalid_output`), and the next alternative is tried.
 Safe filenames are relative paths below the run's directory, with `/` as
@@ -367,6 +367,8 @@ plugins run, and turn it back into a multipart request when forwarding it;
 the helpers of `foca.plugins.wes` are framework-neutral:
 
 ```python
+from dataclasses import replace
+
 from foca.plugins import Attachment
 from foca.plugins.wes import (
     InvalidRunRequest,
@@ -375,7 +377,7 @@ from foca.plugins.wes import (
     run_request_form,
 )
 
-host = get_host()
+host = get_host()  # the app's plugin host
 try:
     run = parse_run_request(
         form,  # the text fields, e.g., {"workflow_url": "main.cwl", "tags": "{}"}
