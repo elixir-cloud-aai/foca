@@ -227,10 +227,14 @@ paths:
             format: int64
         - name: userId
           in: path
-          description: Identifier of the user (`sub` claim)
+          description: >-
+            Identifier of the user: the `sub` claim, namespaced by issuer
+            (e.g., `https://login.example.org/oidc/|alice`), so it may contain
+            slashes
           required: true
           schema:
             type: string
+            format: path
       requestBody:
         required: true
         content:
@@ -299,10 +303,14 @@ paths:
             format: int64
         - name: userId
           in: path
-          description: Identifier of the user (`sub` claim)
+          description: >-
+            Identifier of the user: the `sub` claim, namespaced by issuer
+            (e.g., `https://login.example.org/oidc/|alice`), so it may contain
+            slashes
           required: true
           schema:
             type: string
+            format: path
       responses:
         '200':
           description: identifier of the user

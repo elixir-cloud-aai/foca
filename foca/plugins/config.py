@@ -254,6 +254,9 @@ class StoreConfig(_Model):
             (shared by all processes), if one is configured; if `false`,
             each process keeps them in memory, as without database.
         max_entry_size: Maximum size of values, in bytes, as compact JSON.
+        max_namespace_size: Maximum size of the entries of a namespace (a
+            distribution of plugins), in bytes (default: 16 MiB), counted
+            approximately: keys and values, plus 64 bytes per entry.
         max_ttl: Maximum time to live of entries, in seconds (default: 30
             days); entries without a time to live get it.
         key_secret: Secret for the keys that plugins derive with
@@ -266,6 +269,8 @@ class StoreConfig(_Model):
     Attributes:
         enabled: Whether plugins keep their entries in the database.
         max_entry_size: Maximum size of values, in bytes.
+        max_namespace_size: Maximum size of the entries of a namespace, in
+            bytes.
         max_ttl: Maximum time to live of entries, in seconds.
         key_secret: Secret for derived keys, if set (masked in `repr()`,
             logs and dumps).
@@ -273,6 +278,7 @@ class StoreConfig(_Model):
 
     enabled: bool = True
     max_entry_size: PositiveInt = 4096
+    max_namespace_size: PositiveInt = 16 * 1024 * 1024
     max_ttl: MaxTtl = 2_592_000
     key_secret: SecretStr | None = None
 
@@ -300,17 +306,22 @@ class StoreOverrideConfig(_Model):
     Args:
         enabled: Whether the plugin keeps its entries in the database.
         max_entry_size: Maximum size of values, in bytes.
+        max_namespace_size: Maximum size of the entries of the plugin's
+            namespace, in bytes, for the plugin's writes.
         max_ttl: Maximum time to live of entries, in seconds.
 
     Attributes:
         enabled: Whether the plugin keeps its entries in the database, if
             set.
         max_entry_size: Maximum size of values, in bytes, if set.
+        max_namespace_size: Maximum size of the namespace, in bytes, if
+            set.
         max_ttl: Maximum time to live of entries, in seconds, if set.
     """
 
     enabled: bool | None = None
     max_entry_size: PositiveInt | None = None
+    max_namespace_size: PositiveInt | None = None
     max_ttl: MaxTtl | None = None
 
     def apply(self, defaults: StoreConfig) -> StoreConfig:
@@ -569,6 +580,27 @@ class ProvenanceConfig(_Model):
     secret_headers: list[str] = []
 
 
+class AttachmentsConfig(_Model):
+    """Limits of the files of gateway requests (`plugins.attachments`).
+
+    The files are those of WES runs (`workflow_attachment`, cf.
+    :py:mod:`foca.plugins.wes`), which the gateway holds in memory: the
+    engine checks the limits after each hook that got a run, and apps
+    check the client's request against them before the plugins run.
+
+    Args:
+        max_count: Maximum number of files of a request.
+        max_size: Maximum total size of the files of a request, in bytes.
+
+    Attributes:
+        max_count: Maximum number of files of a request.
+        max_size: Maximum total size of the files of a request, in bytes.
+    """
+
+    max_count: PositiveInt = 256
+    max_size: PositiveInt = 32 * 1024 * 1024
+
+
 class PluginsConfig(_Model):
     """Gateway plugins: allowlist and pipelines (FOCA config section `plugins`).
 
@@ -587,6 +619,8 @@ class PluginsConfig(_Model):
         client_backends: Backends chosen by clients per request.
         tags: Reserved tags of gateway requests.
         provenance: Provenance of gateway requests.
+        attachments: Limits of the files of gateway requests (e.g., WES
+            `workflow_attachment`).
         gateway_id: Name of this gateway in `Via` headers (RFC 9110,
             section 7.6.3), which detect routing loops: a host name or IPv4
             address, or an IPv6 address in brackets, with an optional port;
@@ -602,6 +636,7 @@ class PluginsConfig(_Model):
         client_backends: Backends chosen by clients per request.
         tags: Reserved tags of gateway requests.
         provenance: Provenance of gateway requests.
+        attachments: Limits of the files of gateway requests.
         gateway_id: Name of this gateway in `Via` headers, if set.
 
     Examples:
@@ -623,6 +658,7 @@ class PluginsConfig(_Model):
     client_backends: ClientBackendsConfig = ClientBackendsConfig()
     tags: TagsConfig = TagsConfig()
     provenance: ProvenanceConfig = ProvenanceConfig()
+    attachments: AttachmentsConfig = AttachmentsConfig()
     gateway_id: str | None = Field(default=None, pattern=GATEWAY_ID_PATTERN)
 
     @field_validator("available")

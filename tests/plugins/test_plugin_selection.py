@@ -5,6 +5,7 @@ import logging
 import random
 import sys
 from collections.abc import Iterator
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -407,7 +408,26 @@ def test_tags_not_a_mapping() -> None:
 
 
 def test_tags_of_other_apis() -> None:
-    """Apps of other APIs pass the tags explicitly."""
+    """Apps of APIs other than TES and WES pass the tags explicitly."""
+    conf = PluginsConfig.model_validate(
+        {
+            "available": {"test.tag": {}},
+            "presets": {"p": ["test.tag"]},
+            "client_pipelines": {"enabled": True},
+        }
+    )
+    plugins = load_plugins(conf, api="drs", find_entry_points=fake_entry_points())
+    drs = PluginHost(conf, api="drs", plugins=plugins)
+    with pytest.raises(TypeError, match="tags="):
+        drs.start(request(), ALICE)
+    run = drs.start(request(), ALICE, tags={"gateway.pipeline": "p"})
+    assert run.pipeline.preset == "p"
+    assert drs.start(request(), ALICE, tags=None).pipeline.source == "default"
+    drs.close()
+
+
+def test_tags_of_wes_runs() -> None:
+    """The tags of WES runs are those of the payload, as for TES tasks."""
     conf = PluginsConfig.model_validate(
         {
             "available": {"test.tag": {}},
@@ -417,11 +437,10 @@ def test_tags_of_other_apis() -> None:
     )
     plugins = load_plugins(conf, api="wes", find_entry_points=fake_entry_points())
     wes = PluginHost(conf, api="wes", plugins=plugins)
-    with pytest.raises(TypeError, match="tags="):
-        wes.start(request(), ALICE)
-    run = wes.start(request(), ALICE, tags={"gateway.pipeline": "p"})
+    run = wes.start(request({"gateway.pipeline": "p"}), ALICE)
     assert run.pipeline.preset == "p"
-    assert wes.start(request(), ALICE, tags=None).pipeline.source == "default"
+    none = replace(request(), payload=None)
+    assert wes.start(none, ALICE).pipeline.source == "default"
     wes.close()
 
 
