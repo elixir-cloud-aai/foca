@@ -52,6 +52,8 @@ rules:
             - pattern: "0"
             - pattern: "0.0"
             - pattern: '""'
+            - pattern: "[]"
+            - pattern: "{}"
       # `decode()` and `decode_complete()` of `jwt` and `jwt.PyJWT()` (also
       # imported under other names)
       - metavariable-regex:
@@ -76,12 +78,11 @@ rules:
     pattern-sources:
       # The unverified header, and anything taken from it
       - pattern: jwt.get_unverified_header(...)
-      # Any string literal `none`, in any case, but where it is removed from
-      # a set of algorithms (not a sanitizer, which would also clear the
-      # header's taint)
-      - patterns:
-          - pattern: '"=~/^[nN][oO][nN][eE]$/"'
-          - pattern-not-inside: "$ALGORITHMS - {...}"
+      # Any string literal `none`, in any case, also where it is removed from
+      # a set (e.g., `algorithms - {"none"}`, reported too): an exception
+      # can't tell which operand holds it, and a sanitizer would also clear
+      # the header's taint
+      - pattern: '"=~/^[nN][oO][nN][eE]$/"'
     pattern-sinks:
       - patterns:
           - pattern: $JWT.$DECODE(..., algorithms=$ALGORITHMS, ...)
@@ -115,23 +116,38 @@ rules:
       instead (`verify` may name its path)
     # ruff flags `verify=False` in calls of the requests module, not
     # `verify=0`, and neither in calls on sessions (e.g., `session.get()`).
-    # requests skips the check for any falsy `verify` but `None`, which
-    # means the session's default
-    patterns:
-      - pattern-either:
+    # requests skips the check for any falsy `verify`; `None` in a call
+    # means the session's default, but as the session's setting, no check
+    pattern-either:
+      - patterns:
           - pattern: $SESSION.verify = $OFF
-          # Any function of the requests module
-          - pattern: requests.$FUNCTION(..., verify=$OFF, ...)
-          - patterns:
-              - pattern: $X.$METHOD(..., verify=$OFF, ...)
-              # The request methods of requests' sessions (and of the
-              # module, and of similar clients)
-              - metavariable-regex:
-                  metavariable: $METHOD
-                  regex: ^(get|post|put|patch|delete|head|options|request|send)$
-      - metavariable-pattern:
-          metavariable: $OFF
-          pattern-either:
-            - pattern: "False"
-            - pattern: "0"
-            - pattern: '""'
+          - metavariable-pattern:
+              metavariable: $OFF
+              pattern-either:
+                - pattern: "False"
+                - pattern: "None"
+                - pattern: "0"
+                - pattern: "0.0"
+                - pattern: '""'
+                - pattern: "[]"
+                - pattern: "{}"
+      - patterns:
+          - pattern-either:
+              # Any function of the requests module
+              - pattern: requests.$FUNCTION(..., verify=$OFF, ...)
+              - patterns:
+                  - pattern: $X.$METHOD(..., verify=$OFF, ...)
+                  # The request methods of requests' sessions (and of the
+                  # module, and of similar clients)
+                  - metavariable-regex:
+                      metavariable: $METHOD
+                      regex: ^(get|post|put|patch|delete|head|options|request|send)$
+          - metavariable-pattern:
+              metavariable: $OFF
+              pattern-either:
+                - pattern: "False"
+                - pattern: "0"
+                - pattern: "0.0"
+                - pattern: '""'
+                - pattern: "[]"
+                - pattern: "{}"

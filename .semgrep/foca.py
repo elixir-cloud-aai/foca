@@ -67,6 +67,10 @@ jwt.decode(TOKEN, options={"verify_signature": 0.0})
 jwt.decode(TOKEN, verify="")
 # ruleid: jwt-decode-without-verification
 jwt.decode(TOKEN, options=dict(verify_signature=""))  # noqa: C408
+# ruleid: jwt-decode-without-verification
+jwt.decode(TOKEN, options={"verify_signature": []})
+# ruleid: jwt-decode-without-verification
+jwt.decode(TOKEN, verify={})
 VERIFY = False
 # ruleid: jwt-decode-without-verification
 jwt.decode(TOKEN, options={"verify_signature": VERIFY})
@@ -136,8 +140,16 @@ def decode_with_key_algorithm(token: str, jwks: dict) -> dict:
 def decode_without_none(token: str, algorithms: set[str]) -> dict:
     """Decode a token with the given algorithms, but `none`."""
     allowed = algorithms - {"none"}
-    # ok: jwt-decode-unsafe-algorithms
+    # Reported, too (a false positive: use a fixed list instead)
+    # ruleid: jwt-decode-unsafe-algorithms
     return jwt.decode(token, KEY, algorithms=list(allowed))
+
+
+def decode_with_none_left(token: str) -> dict:
+    """Decode a token with a set difference that keeps `none`."""
+    algorithms = {"RS256", "none"} - {"NONE"}
+    # ruleid: jwt-decode-unsafe-algorithms
+    return jwt.decode(token, KEY, algorithms=list(algorithms))
 
 
 def decode_with_header_algorithm_without_none(token: str) -> dict:
@@ -211,6 +223,14 @@ session.patch("https://example.org", verify=TLS_VERIFY, timeout=10)
 session.verify = TLS_VERIFY
 # ok: tls-verification-disabled
 session.get("https://example.org", verify=None, timeout=10)
+# ruleid: tls-verification-disabled
+session.verify = None
+# ruleid: tls-verification-disabled
+session.head("https://example.org", verify=0.0, timeout=10)
+# ruleid: tls-verification-disabled
+session.delete("https://example.org", verify=[], timeout=10)
+# ruleid: tls-verification-disabled
+session.verify = {}
 # ok: tls-verification-disabled
 session.verify = "/etc/ssl/certs/ca-certificates.crt"
 # ok: tls-verification-disabled
