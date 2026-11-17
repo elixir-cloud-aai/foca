@@ -215,6 +215,8 @@ configuration models, see [Configuration](configuration/index.md).
 
 ::: foca.plugins.tags
 
+::: foca.plugins.wes
+
 ::: foca.plugins.api
 
 ::: foca.plugins.runtime

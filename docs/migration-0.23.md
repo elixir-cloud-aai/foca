@@ -12,7 +12,9 @@ and deployments need to change only if:
   responses](#the-permissions-api-reports-invalid-fields);
 - their plugins keep more than 16 MiB in the [plugin
   store](#the-plugin-store-limits-namespaces), or they implement a store
-  backend of their own.
+  backend of their own;
+- they are WES gateways with plugins, as [plugins get WES runs in a defined
+  shape](#plugins-get-wes-runs-in-a-defined-shape).
 
 ## Subjects are always namespaced by issuer
 
@@ -191,3 +193,25 @@ plugin catches it. Before, a namespace was bounded only by `max_ttl`.
   argument `max_size` to `set()` and `increment()`, so backends without it
   fail with `TypeError` at the first such call. Add it, and raise
   `StoreFullError` if the namespace would exceed it.
+
+## Plugins get WES runs in a defined shape
+
+Plugins of WES gateways now get runs (`POST /runs`) in one shape for every
+gateway (see [WES requests](plugins.md#wes-requests)): the payload is a
+`dict` of the form fields, with `workflow_params`, `tags` and
+`workflow_engine_parameters` parsed from JSON, and the files as a list of
+`foca.plugins.Attachment` under `workflow_attachment`. The engine checks
+this shape after each `request` and `forward` hook that got a run, with the
+new limits [`plugins.attachments`](configuration/plugins.md#attachments)
+(by default 256 files and 32 MiB per run).
+
+- **Breaking** for WES apps that pass a payload of another shape (e.g.,
+  `tags` as a JSON string, or the web framework's uploads as files): every
+  hook then fails with `invalid_output`. Build the payload with
+  `foca.plugins.wes.parse_run_request()` and check it with
+  `check_run_request(run, host.conf.attachments)` before `host.start()`;
+  forward it with `run_request_form()`.
+- `host.start()` now reads the tags of WES runs from the payload, as for TES
+  tasks: `tags=` is no longer needed (passing it still works).
+- Raise `plugins.attachments` before upgrading if runs may have more or
+  larger files.
