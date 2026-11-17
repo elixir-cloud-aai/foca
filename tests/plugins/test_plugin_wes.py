@@ -9,6 +9,7 @@ import pytest
 from foca.plugins import (
     Attachment,
     Context,
+    Headers,
     InboundRequest,
     OutboundRequest,
     Plugin,
@@ -77,6 +78,30 @@ class UnsafePlugin(AttachPlugin):
     filename = "../main.cwl"
 
 
+class ShortBytes(bytes):
+    """Bytes that claim to be empty."""
+
+    def __len__(self) -> int:
+        """Claim to be empty.
+
+        Returns:
+            0.
+        """
+        return 0
+
+
+class ShortList(list[Any]):
+    """List that claims to be empty."""
+
+    def __len__(self) -> int:
+        """Claim to be empty.
+
+        Returns:
+            0.
+        """
+        return 0
+
+
 class SmallAttachment(Attachment):
     """Attachment that claims to be empty."""
 
@@ -129,6 +154,8 @@ def test_attachment() -> None:
         Attachment("a", "text")  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="bytes"):
         Attachment("a", bytearray(b"x"))  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="bytes"):
+        Attachment("a", ShortBytes(b"xyz"))
     with pytest.raises(TypeError, match="filenames"):
         Attachment(1, b"")  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="media types"):
@@ -164,11 +191,14 @@ def test_safe_filenames(filename: str) -> None:
         ("a\x00b", "control"),
         ("a\nb", "control"),
         ("a\u202eb", "control"),
+        ("a\u2028b", "control"),  # line separator
+        ("a\u2029b", "control"),  # paragraph separator
         ("a\udc80", "UTF-8"),
         ("x" * 256, "255"),
         ("a/" * 600 + "b", "1024"),
         ("\uff0e\uff0e/x", r"'\.' or '\.\.'"),  # fullwidth dots: NFKC `..`
         ("\uff0fetc", "absolute"),  # fullwidth solidus: NFKC `/`
+        ("\ufdfa" * 80, "255"),  # 240 bytes, but over 255 after NFKC
         ("a\uff3cb", "backslash"),  # fullwidth reverse solidus
     ],
 )
@@ -217,6 +247,26 @@ def test_check_attachments() -> None:
         ),
         ([Attachment("a", b"", "")], InvalidRunRequest, "media type"),
         (
+            [Attachment("main.cwl", b""), Attachment("\uff4dain.cwl", b"")],
+            InvalidRunRequest,
+            "used twice",
+        ),
+        (
+            [Attachment("main.cwl", b""), Attachment("MAIN.cwl", b"")],
+            InvalidRunRequest,
+            "used twice",
+        ),
+        (
+            [Attachment("A/b", b""), Attachment("a", b"")],
+            InvalidRunRequest,
+            "directory of another",
+        ),
+        (
+            ShortList([Attachment(str(i), b"") for i in range(3)]),
+            AttachmentsTooLarge,
+            "more than 2",
+        ),
+        (
             [Attachment(str(i), b"") for i in range(3)],
             AttachmentsTooLarge,
             "more than 2",
@@ -263,6 +313,9 @@ def test_check_run_request() -> None:
         ({"workflow_url": 1}, "workflow_url: no string"),
         ({"tags": "{}"}, "tags: no JSON object"),
         ({"workflow_params": []}, "workflow_params: no JSON object"),
+        ({"workflow_params": {"a": float("nan")}}, "workflow_params: no valid"),
+        ({"workflow_params": {"a": {1, 2}}}, "workflow_params: no valid JSON"),
+        ({"tags": Headers()}, "tags: no JSON object"),
         ({"workflow_engine_parameters": 1}, "workflow_engine_parameters"),
         ({1: "a"}, "names"),
         ({"other": 1}, "other: no string"),
@@ -307,6 +360,8 @@ def test_parse_run_request() -> None:
         ({"tags": "{"}, "tags: no valid JSON"),
         ({"tags": "[]"}, "tags: no JSON object"),
         ({"workflow_params": "[" * 100_000}, "workflow_params: no valid JSON"),
+        ({"workflow_params": '{"a": NaN}'}, "workflow_params: no valid JSON"),
+        ({"workflow_params": '{"a": -Infinity}'}, "workflow_params: no valid"),
         ({"workflow_url": 1}, "workflow_url: no string"),
         ({ATTACHMENT_FIELD: "a"}, "file parts"),
     ]

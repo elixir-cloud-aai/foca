@@ -347,18 +347,20 @@ def on_request(self, request: InboundRequest, ctx: Context) -> None:
 
 After each `request` and `forward` hook of a WES gateway that got a run,
 the engine checks the run, as it re-validates payloads: output whose fields
-have the wrong types, whose attachments are no list of `Attachment`s, or
-that has an unsafe filename, a filename twice (or as a directory of another
-file, or inside another file), an invalid media type, or more files or bytes than
+have the wrong types (JSON fields must be `dict`s of JSON values, without
+`NaN`), whose attachments are no list of `Attachment`s, or that has an
+unsafe filename, a filename twice (or as a directory of another file, or
+inside another file; compared after NFKC normalization and ignoring case,
+as servers may do), an invalid media type, or more files or bytes than
 [`plugins.attachments`](configuration/plugins.md#attachments) allows,
 counts as invalid (`invalid_output`), and the next alternative is tried.
 Safe filenames are relative paths below the run's directory, with `/` as
 separator: not empty, not absolute (no leading `/`, no drive such as `C:`),
 without backslashes, without empty, `.` or `..` segments, without control
-or format characters (e.g., NUL, line breaks, bidirectional overrides),
-valid UTF-8 of at most 1024 bytes, with segments of at most 255 bytes; their
-NFKC normalization must be safe too (so that, e.g., fullwidth dots cannot
-become `..`). Plugins that add files from elsewhere keep limits of their own
+or format characters (e.g., NUL, line breaks and line separators,
+bidirectional overrides), valid UTF-8 of at most 1024 bytes, with segments
+of at most 255 bytes; their NFKC normalization must be safe too, also in
+size (so that, e.g., fullwidth dots cannot become `..`). Plugins that add files from elsewhere keep limits of their own
 (at most those of the gateway), and reject runs that exceed them, e.g., with
 `Rejected(..., 413)`, so that clients learn why.
 

@@ -301,7 +301,8 @@ class Attachment:
         """
         if not isinstance(self.filename, str):
             raise TypeError("Attachment filenames are strings")
-        if not isinstance(self.content, bytes):
+        # not subclasses, which could misreport their length
+        if type(self.content) is not bytes:
             raise TypeError("Attachment contents are bytes")
         if not isinstance(self.media_type, str):
             raise TypeError("Attachment media types are strings")

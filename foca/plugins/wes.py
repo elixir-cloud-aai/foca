@@ -73,8 +73,9 @@ MAX_SEGMENT_SIZE = 255
 _TCHARS = r"[!#$%&'*+.^_`|~0-9A-Za-z-]+"
 _MEDIA_TYPE = re.compile(rf"{_TCHARS}/{_TCHARS}(?:[ \t]*;[\x20-\x7e]*)?")
 _DRIVE = re.compile(r"[A-Za-z]:")
-# control, format (e.g., bidirectional overrides) and surrogate characters
-_CONTROL_CATEGORIES = frozenset({"Cc", "Cf", "Cs"})
+# control, format (e.g., bidirectional overrides), surrogate characters, and
+# line and paragraph separators
+_CONTROL_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Zl", "Zp"})
 
 
 class InvalidRunRequest(ValueError):
@@ -129,11 +130,12 @@ def check_filename(filename: object) -> str:
     Safe filenames are relative paths below the run's directory, with `/`
     as separator: not empty, not absolute (no leading `/`, no drive such as
     `C:`), without backslashes, without empty, `.` or `..` segments, without
-    control or format characters (e.g., NUL, line breaks, bidirectional
-    overrides), valid UTF-8 of at most :py:data:`MAX_FILENAME_SIZE` bytes,
-    with segments of at most :py:data:`MAX_SEGMENT_SIZE` bytes. Their NFKC
-    normalization (as some servers apply it) must be safe as well, so that,
-    e.g., fullwidth dots cannot turn into `..`.
+    control or format characters (e.g., NUL, line breaks and line
+    separators, bidirectional overrides), valid UTF-8 of at most
+    :py:data:`MAX_FILENAME_SIZE` bytes, with segments of at most
+    :py:data:`MAX_SEGMENT_SIZE` bytes. Their NFKC normalization (as some
+    servers apply it) must be safe as well, also in size, so that, e.g.,
+    fullwidth dots cannot turn into `..`.
 
     Args:
         filename: Filename.
@@ -159,9 +161,10 @@ def check_filename(filename: object) -> str:
         )
     if any(unicodedata.category(char) in _CONTROL_CATEGORIES for char in filename):
         raise InvalidRunRequest("filename has control or format characters")
+    normalized = unicodedata.normalize("NFKC", filename)
     _check_path(filename)
-    _check_path(unicodedata.normalize("NFKC", filename))
-    segments = filename.split("/")
+    _check_path(normalized)
+    segments = filename.split("/") + normalized.split("/")
     if any(len(part.encode("utf-8")) > MAX_SEGMENT_SIZE for part in segments):
         raise InvalidRunRequest(
             f"filename has a segment longer than {MAX_SEGMENT_SIZE} bytes (UTF-8)"
@@ -187,14 +190,16 @@ def _check_files(attachments: object, limits: AttachmentsConfig | None) -> list[
         return []
     if not isinstance(attachments, list | tuple):
         raise InvalidRunRequest(f"{ATTACHMENT_FIELD}: no list")
-    if limits is not None and len(attachments) > limits.max_count:
+    # a plain list, so that subclasses cannot misreport their length
+    items = list(attachments)
+    if limits is not None and len(items) > limits.max_count:
         raise AttachmentsTooLarge(
             f"{ATTACHMENT_FIELD}: more than {limits.max_count} files"
         )
     files: set[str] = set()
     directories: set[str] = set()
     total = 0
-    for index, attachment in enumerate(attachments):
+    for index, attachment in enumerate(items):
         field = f"{ATTACHMENT_FIELD}[{index}]"
         # not subclasses, which could override the checked fields
         if type(attachment) is not Attachment:
@@ -205,21 +210,23 @@ def _check_files(attachments: object, limits: AttachmentsConfig | None) -> list[
             raise InvalidRunRequest(f"{field}: {exc}") from None
         if not _MEDIA_TYPE.fullmatch(attachment.media_type):
             raise InvalidRunRequest(f"{field}: invalid media type")
-        if name in files:
+        # as servers may normalize filenames, or ignore their case
+        key = unicodedata.normalize("NFKC", name).casefold()
+        if key in files:
             raise InvalidRunRequest(f"{field}: filename used twice")
-        if name in directories:
+        if key in directories:
             raise InvalidRunRequest(f"{field}: filename is a directory of another")
-        parents = [name[:i] for i, char in enumerate(name) if char == "/"]
+        parents = [key[:i] for i, char in enumerate(key) if char == "/"]
         if any(parent in files for parent in parents):
             raise InvalidRunRequest(f"{field}: filename is in a file of another")
-        files.add(name)
+        files.add(key)
         directories.update(parents)
         total += len(attachment.content)
         if limits is not None and total > limits.max_size:
             raise AttachmentsTooLarge(
                 f"{ATTACHMENT_FIELD}: more than {limits.max_size} bytes"
             )
-    return list(attachments)
+    return items
 
 
 def check_attachments(
@@ -240,9 +247,44 @@ def check_attachments(
         InvalidRunRequest: The attachments are no list, or an item is no
             attachment, has an unsafe filename (cf. :py:func:`check_filename`)
             or an invalid media type, or names a file twice, or as a
-            directory of another file, or inside another file (`400`).
+            directory of another file, or inside another file, also when
+            compared after NFKC normalization and ignoring case (`400`).
     """
     _check_files(attachments, limits or AttachmentsConfig())
+
+
+def _no_constant(constant: str) -> Any:
+    """Refuse the non-standard JSON constants `NaN` and `Infinity`.
+
+    Args:
+        constant: Constant.
+
+    Raises:
+        ValueError: Always.
+    """
+    raise ValueError(f"no JSON: {constant}")
+
+
+def _to_json(name: str, value: Any) -> str:
+    """Serialize a JSON field of a run request.
+
+    Args:
+        name: Name of the field.
+        value: Value of the field.
+
+    Returns:
+        Compact JSON.
+
+    Raises:
+        InvalidRunRequest: The value has values that are no JSON (e.g.,
+            `NaN`, sets or bytes).
+    """
+    try:
+        return json.dumps(
+            value, ensure_ascii=False, allow_nan=False, separators=(",", ":")
+        )
+    except (TypeError, ValueError, RecursionError):
+        raise InvalidRunRequest(f"{name}: no valid JSON") from None
 
 
 def _check_fields(payload: object) -> Mapping[Any, Any]:
@@ -266,8 +308,9 @@ def _check_fields(payload: object) -> Mapping[Any, Any]:
         if name == ATTACHMENT_FIELD or value is None:
             continue
         if name in JSON_FIELDS:
-            if not isinstance(value, Mapping):
+            if not isinstance(value, dict):
                 raise InvalidRunRequest(f"{name}: no JSON object")
+            _to_json(name, value)
         elif not isinstance(value, str):
             raise InvalidRunRequest(f"{name}: no string")
     return payload
@@ -288,7 +331,8 @@ def check_run_request(payload: object, limits: AttachmentsConfig | None = None) 
     Raises:
         AttachmentsTooLarge: The attachments exceed the limits (`413`).
         InvalidRunRequest: The run request is no mapping, the JSON fields
-            are no mappings, other fields (`None` aside) no strings, or the
+            are no `dict`s of JSON values (e.g., no `NaN`), other fields
+            (`None` aside) no strings, or the
             attachments are invalid (cf. :py:func:`check_attachments`)
             (`400`).
     """
@@ -313,7 +357,8 @@ def parse_run_request(
         check the result with :py:func:`check_run_request`.
 
     Raises:
-        InvalidRunRequest: A JSON field is no valid JSON or no object,
+        InvalidRunRequest: A JSON field is no valid JSON (also with
+            `NaN` or `Infinity`) or no object,
             another field no string, or `workflow_attachment` is a text
             field.
     """
@@ -326,7 +371,7 @@ def parse_run_request(
         parsed: Any = value
         if name in JSON_FIELDS:
             try:
-                parsed = json.loads(value)
+                parsed = json.loads(value, parse_constant=_no_constant)
             except (ValueError, RecursionError):
                 raise InvalidRunRequest(f"{name}: no valid JSON") from None
             if not isinstance(parsed, dict):
@@ -361,13 +406,5 @@ def run_request_form(
     for name, value in payload.items():
         if name == ATTACHMENT_FIELD or value is None:
             continue
-        text = value
-        if name in JSON_FIELDS:
-            try:
-                text = json.dumps(
-                    value, ensure_ascii=False, allow_nan=False, separators=(",", ":")
-                )
-            except (TypeError, ValueError, RecursionError):
-                raise InvalidRunRequest(f"{name}: no valid JSON") from None
-        fields[name] = text
+        fields[name] = _to_json(name, value) if name in JSON_FIELDS else value
     return fields, files
