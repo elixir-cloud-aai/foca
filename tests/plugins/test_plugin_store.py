@@ -13,11 +13,13 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import mongomock
+import pymongo
 import pytest
 from pydantic import ValidationError
-from pymongo import MongoClient
+from pymongo import MongoClient, _csot
 from pymongo.errors import (
     DuplicateKeyError,
+    ExecutionTimeout,
     OperationFailure,
     PyMongoError,
     ServerSelectionTimeoutError,
@@ -25,6 +27,7 @@ from pymongo.errors import (
 from pymongo.read_preferences import ReadPreference
 
 from foca import Foca
+from foca import plugins as plugins_api
 from foca.models.config import Config, DBConfig, MongoConfig
 from foca.plugins import (
     Context,
@@ -49,12 +52,17 @@ from foca.plugins.runtime import GatewayApp
 from foca.plugins.store import (
     MAX_KEY_LENGTH,
     STORE_COLLECTION,
+    STORE_ENTRY_OVERHEAD,
+    STORE_SIZES_COLLECTION,
     MemoryStoreBackend,
     MongoStoreBackend,
     StoreBackend,
+    StoreFullError,
     StoreSettings,
     _aware,
+    _document_size,
     _retry_upsert,
+    entry_size,
 )
 from foca.plugins.testing import PluginHarness, make_inbound
 from tests.plugins.test_plugin_runtime import write_config
@@ -136,6 +144,7 @@ def make_store(
     max_ttl: float = 3600,
     deadline: float | None = None,
     key_secret: bytes | None = None,
+    max_namespace_size: int | None = None,
 ) -> Store:
     """Create a store.
 
@@ -147,6 +156,7 @@ def make_store(
         max_ttl: Maximum time to live.
         deadline: Deadline, if any.
         key_secret: Secret for `key_for()`, if any.
+        max_namespace_size: Maximum size of the namespace, if any.
 
     Returns:
         Store.
@@ -158,6 +168,7 @@ def make_store(
         max_entry_size=max_entry_size,
         max_ttl=max_ttl,
         key_secret=key_secret,
+        max_namespace_size=max_namespace_size,
     )
     if clock is None:
         return Store(settings, deadline=deadline)
@@ -465,6 +476,497 @@ class TestStore:
         assert "topsecret" not in repr(settings)
 
 
+# bytes of an entry with a one-character key and value (e.g., `1`)
+SMALL = STORE_ENTRY_OVERHEAD + 2
+
+
+class TestNamespaceSize:
+    """Limit of the size of namespaces (`max_namespace_size`), with all backends."""
+
+    def test_full(self, backend: StoreBackend) -> None:
+        """Writes that don't fit fail clearly; other namespaces are unaffected."""
+        store = make_store(backend, max_namespace_size=3 * SMALL)
+        for key in "abc":
+            store.set(key, 1)
+        with pytest.raises(StoreFullError, match="namespace full") as info:
+            store.set("d", 1)
+        assert "'d'" not in str(info.value)
+        assert isinstance(info.value, StoreError)
+        assert plugins_api.StoreFullError is StoreFullError
+        assert store.get("d") is None
+        other = make_store(backend, namespace="other", max_namespace_size=SMALL)
+        other.set("d", 1)
+        assert other.get("d") == 1
+
+    def test_replace(self, backend: StoreBackend) -> None:
+        """Entries may be replaced by ones that are not larger, also when full."""
+        store = make_store(backend, max_namespace_size=2 * SMALL)
+        store.set("a", 1)
+        store.set("b", 1)
+        store.set("a", 2)
+        with pytest.raises(StoreFullError):
+            store.set("a", 22)
+        assert store.get("a") == 2
+
+    def test_delete(self, backend: StoreBackend) -> None:
+        """Deleted entries free their space."""
+        store = make_store(backend, max_namespace_size=SMALL)
+        store.set("a", 1)
+        assert store.delete("a") is True
+        store.set("b", 1)
+        assert store.get("b") == 1
+
+    def test_counters(self, backend: StoreBackend) -> None:
+        """New counters need room; increments of existing ones don't."""
+        counter = STORE_ENTRY_OVERHEAD + 1 + 8
+        store = make_store(backend, max_namespace_size=counter + SMALL)
+        assert store.increment("c") == 1
+        store.set("a", 1)
+        assert store.increment("c", by=5) == 6
+        with pytest.raises(StoreFullError):
+            store.increment("d")
+        assert store.get("d") is None
+
+    def test_too_large(self, backend: StoreBackend) -> None:
+        """Entries larger than the namespace never fit."""
+        store = make_store(backend, max_namespace_size=SMALL - 1)
+        with pytest.raises(StoreFullError, match=f"entry of {SMALL} bytes"):
+            store.set("a", 1)
+        assert store.get("a") is None  # not written
+
+    def test_unlimited(self, backend: StoreBackend) -> None:
+        """Without maximum (hand-built settings), namespaces are unbounded."""
+        store = make_store(backend)
+        for key in range(50):
+            store.set(str(key), "x" * 100)
+        assert store.get("49") == "x" * 100
+
+    def test_sizes(self) -> None:
+        """Entries count the overhead and their key and value in UTF-8."""
+        assert entry_size("ü", '"a"') == STORE_ENTRY_OVERHEAD + 2 + 3
+        assert entry_size("k", None) == STORE_ENTRY_OVERHEAD + 1 + 8
+
+
+class TestMemoryNamespaceSize:
+    """Namespace sizes in the memory backend."""
+
+    def test_expired_entries(self) -> None:
+        """Expired entries are removed when the namespace is full."""
+        clock = Clock()
+        backend = MemoryStoreBackend()
+        store = make_store(backend, clock, max_namespace_size=2 * SMALL)
+        other = make_store(backend, clock, namespace="o")
+        store.set("a", 1, ttl=1)
+        store.set("b", 1, ttl=1)
+        other.set("a", 1, ttl=1)
+        clock.advance(1)
+        store.set("a", 1)  # expired itself
+        store.set("c", 1)
+        assert backend._sizes == {"ns": 2 * SMALL, "o": SMALL}
+        assert ("o", "a") in backend._entries  # other namespaces stay
+
+    def test_full_sweeps_limited(self) -> None:
+        """Full namespaces are swept at most every few seconds."""
+        clock = Clock()
+        backend = MemoryStoreBackend()
+        store = make_store(backend, clock, max_namespace_size=SMALL)
+        store.set("a", 1, ttl=1)
+        with pytest.raises(StoreFullError):
+            store.set("b", 1)  # swept, nothing expired
+        clock.advance(1)
+        with pytest.raises(StoreFullError):
+            store.set("b", 1)  # not swept again yet
+        backend._FULL_SWEEP_INTERVAL = 0.0
+        store.set("b", 1)
+        assert list(backend._entries) == [("ns", "b")]
+
+    def test_sweep_counts(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Sweeps and reads of expired entries update the sizes."""
+        monkeypatch.setattr(MemoryStoreBackend, "_SWEEP_INTERVAL", 3)
+        clock = Clock()
+        backend = MemoryStoreBackend()
+        store = make_store(backend, clock)
+        store.set("a", 1, ttl=1)
+        store.set("b", 1, ttl=1)
+        clock.advance(1)
+        store.set("c", 1)  # third write: sweeps
+        assert backend._sizes == {"ns": SMALL}
+        store.set("d", 1, ttl=1)
+        clock.advance(1)
+        assert store.get("d") is None
+        assert backend._sizes == {"ns": SMALL}
+
+
+def mongomock_backend() -> MongoStoreBackend:
+    """Create a backend in mongomock, in an empty database.
+
+    Clients of mongomock share their databases, so it is emptied first.
+
+    Returns:
+        Backend.
+    """
+    client: Any = mongomock.MongoClient()
+    client.drop_database("db")
+    collection: Any = client["db"][STORE_COLLECTION]
+    return MongoStoreBackend(collection)
+
+
+def ns_size(backend: MongoStoreBackend) -> int:
+    """Get the size of the namespace `ns` as kept by a backend.
+
+    Args:
+        backend: Backend.
+
+    Returns:
+        Size, in bytes.
+    """
+    document = backend.sizes.find_one({"_id": "ns"})
+    assert document is not None
+    return int(document["size"])
+
+
+@pytest.fixture(
+    params=["mongomock", pytest.param("mongodb", marks=pytest.mark.mongodb)]
+)
+def mongo(request: pytest.FixtureRequest) -> MongoStoreBackend:
+    """MongoDB backend in mongomock or in a MongoDB server (`mongo_backend`)."""
+    if request.param == "mongomock":
+        return mongomock_backend()
+    backend: MongoStoreBackend = request.getfixturevalue("mongo_backend")
+    return backend
+
+
+class TestMongoNamespaceSize:
+    """Namespace sizes in the MongoDB backend."""
+
+    def test_size_documents(self, mongo: MongoStoreBackend) -> None:
+        """Sizes are kept per namespace, in their own collection."""
+        backend = mongo
+        store = make_store(backend, max_namespace_size=10 * SMALL)
+        store.set("a", 1)
+        store.increment("c")
+        assert backend.sizes.name == STORE_SIZES_COLLECTION
+        size = SMALL + STORE_ENTRY_OVERHEAD + 9
+        # counted once, at the first write (`gen`)
+        assert list(backend.sizes.find()) == [{"_id": "ns", "size": size, "gen": 1}]
+        store.delete("a")
+        assert ns_size(backend) == size - SMALL
+
+    def test_recount_when_full(self, mongo: MongoStoreBackend) -> None:
+        """Full namespaces are counted again, at most every few seconds."""
+        backend = mongo
+        store = make_store(backend, max_namespace_size=SMALL)
+        store.set("a", 1)
+        # as if removed by the TTL index
+        backend.collection.delete_many({})
+        with pytest.raises(StoreFullError):
+            store.set("b", 1)  # counted at the first write, just now
+        backend._RECOUNT_RETRY_INTERVAL = 0.0
+        store.set("b", 1)
+        assert ns_size(backend) == SMALL
+        with pytest.raises(StoreFullError):
+            store.set("c", 1)  # counted again, still full
+
+    def test_periodic_recount(self, mongo: MongoStoreBackend) -> None:
+        """Namespaces are counted again before the first write and periodically."""
+        backend = mongo
+        store = make_store(backend, max_namespace_size=10 * SMALL)
+        backend.sizes.insert_one({"_id": "ns", "size": 10 * SMALL})
+        store.set("a", 1)  # first write: counted
+        assert ns_size(backend) == SMALL
+        backend.sizes.update_one({"_id": "ns"}, {"$set": {"size": 0}})
+        store.set("b", 1)
+        assert ns_size(backend) == SMALL
+        backend._RECOUNT_INTERVAL = 0.0
+        store.set("c", 1)
+        assert ns_size(backend) == 3 * SMALL
+
+    def test_legacy_documents(self, mongo: MongoStoreBackend) -> None:
+        """Entries without size (earlier versions) count the overhead only."""
+        backend = mongo
+        backend.collection.insert_many(
+            [
+                {"_id": "ns\x1fv", "ns": "ns", "key": "v", "value": "1"},
+                {"_id": "ns\x1fc", "ns": "ns", "key": "c", "n": 1},
+                {"_id": "ns\x1fs", "ns": "ns", "key": "s", "value": "1", "size": 70},
+                {"_id": "o\x1fv", "ns": "o", "key": "v", "value": "1"},
+            ]
+        )
+        assert backend.recount("ns") == 2 * STORE_ENTRY_OVERHEAD + 70
+        assert ns_size(backend) == 2 * STORE_ENTRY_OVERHEAD + 70
+        assert backend.recount("empty") == 0
+        store = make_store(backend)
+        backend._counted["ns"] = time.monotonic()
+        store.delete("v")  # subtracts what it counted
+        assert ns_size(backend) == STORE_ENTRY_OVERHEAD + 70
+
+    def test_document_size(self) -> None:
+        """Sizes of documents: stored, or the overhead for earlier versions."""
+        assert _document_size(None) == 0
+        assert _document_size({"size": 5}) == 5
+        assert _document_size({"size": True}) == STORE_ENTRY_OVERHEAD
+        assert _document_size({}) == STORE_ENTRY_OVERHEAD
+
+    def test_failed_recount(
+        self, mongo: MongoStoreBackend, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Failed counts are logged, don't fail writes, and wait for the interval.
+
+        The namespace is then counted in the background, which may fail too.
+        """
+        backend = mongo
+        store = make_store(backend, max_namespace_size=10 * SMALL)
+        backend.sizes.insert_one({"_id": "ns", "size": 0})  # counted before
+        recount = MagicMock(side_effect=ServerSelectionTimeoutError("db.internal"))
+        backend.recount = recount  # type: ignore[method-assign]
+        store.set("a", 1)
+        background = backend._background["ns"]
+        background.join(5)
+        assert not background.is_alive()
+        store.set("b", 1)
+        assert recount.call_count == 2  # in the call, then in the background
+        assert "namespace ns not counted again (ServerSelectionTimeoutError)" in (
+            caplog.text
+        )
+        assert (
+            "namespace ns not counted again in the background"
+            " (ServerSelectionTimeoutError)"
+        ) in caplog.text
+        assert "db.internal" not in caplog.text
+        assert ns_size(backend) == 2 * SMALL
+
+    def test_recount_in_background(self, mongo: MongoStoreBackend) -> None:
+        """Counts that fail in the call (e.g., too slow) succeed in the background.
+
+        So that entries removed by the TTL index don't keep counting, and a
+        namespace isn't counted by two threads at a time.
+        """
+        backend = mongo
+        store = make_store(backend, max_namespace_size=10 * SMALL)
+        store.set("a", 1)
+        store.set("b", 1)
+        backend.collection.delete_one({"key": "a"})  # as if expired
+        original = backend.recount
+        release = threading.Event()
+        calls: list[str] = []
+
+        def slow(ns: str) -> int:
+            calls.append(ns)
+            if len(calls) == 1:
+                raise ExecutionTimeout("too slow")
+            release.wait(5)
+            return original(ns)
+
+        backend.recount = slow  # type: ignore[method-assign]
+        backend._RECOUNT_INTERVAL = 0.0
+        store.set("c", 1)  # fails in the call, starts the background count
+        thread = backend._background["ns"]
+        backend._recount_in_background("ns")  # one at a time
+        assert backend._background["ns"] is thread
+        release.set()
+        thread.join(5)
+        assert not thread.is_alive()
+        assert calls == ["ns", "ns"]
+        assert ns_size(backend) == 2 * SMALL
+
+    def test_background_count_ignores_deadline(self, mongo: MongoStoreBackend) -> None:
+        """Background counts don't inherit the deadline of the call."""
+        backend = mongo
+        deadlines: list[float | None] = []
+
+        def recount(ns: str) -> int:
+            deadlines.append(_csot.remaining())
+            return 0
+
+        backend.recount = recount  # type: ignore[method-assign]
+        with pymongo.timeout(0.001):
+            backend._recount_in_background("ns")
+        thread = backend._background["ns"]
+        thread.join(5)
+        assert not thread.is_alive()
+        remaining = deadlines[0]
+        assert remaining is not None
+        assert remaining > 1
+
+    def test_thread_not_started(
+        self, mongo: MongoStoreBackend, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """If no thread can be started, the failure is logged, not raised."""
+        backend = mongo
+
+        def fail(self: threading.Thread) -> None:
+            raise RuntimeError("can't start new thread")
+
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(threading.Thread, "start", fail)
+            backend._recount_in_background("ns")
+        assert "ns" not in backend._background
+        assert (
+            "namespace ns not counted in the background (can't start new thread)"
+        ) in caplog.text
+
+    def test_concurrent_writes_while_counting(self, mongo: MongoStoreBackend) -> None:
+        """Sizes added while a count runs are kept (also of this process)."""
+        backend = mongo
+        store = make_store(backend, max_namespace_size=10 * SMALL)
+        store.set("a", 1)
+        original = backend.collection.aggregate
+
+        def concurrent(*args: Any, **kwargs: Any) -> Any:
+            result = list(original(*args, **kwargs))
+            # writes after the entries were read
+            store.set("b", 1)
+            store.set("c", 1)
+            return iter(result)
+
+        backend.collection.aggregate = concurrent  # type: ignore[method-assign]
+        assert backend.recount("ns") == SMALL
+        assert ns_size(backend) == 3 * SMALL
+
+    def test_concurrent_counts(self, mongo: MongoStoreBackend) -> None:
+        """Concurrent counts correct the size once."""
+        backend = mongo
+        store = make_store(backend, max_namespace_size=10 * SMALL)
+        store.set("a", 1)
+        backend.sizes.update_one({"_id": "ns"}, {"$set": {"size": 5 * SMALL}})
+        original = backend.collection.aggregate
+        nested: list[int] = []
+
+        def concurrent(*args: Any, **kwargs: Any) -> Any:
+            result = list(original(*args, **kwargs))
+            if not nested:  # another count, after this one read the size
+                nested.append(0)
+                nested[0] = backend.recount("ns")
+            return iter(result)
+
+        backend.collection.aggregate = concurrent  # type: ignore[method-assign]
+        assert backend.recount("ns") == SMALL
+        assert nested == [SMALL]
+        assert ns_size(backend) == SMALL
+
+    def test_concurrent_first_counts(self, mongo: MongoStoreBackend) -> None:
+        """A first count that loses to a concurrent one leaves its size."""
+        backend = mongo
+        backend.collection.insert_one(
+            {"_id": "ns\x1fa", "ns": "ns", "key": "a", "value": "1", "size": SMALL}
+        )
+        original = backend.collection.aggregate
+        nested: list[int] = []
+
+        def concurrent(*args: Any, **kwargs: Any) -> Any:
+            result = list(original(*args, **kwargs))
+            if not nested:
+                nested.append(0)
+                nested[0] = backend.recount("ns")
+            return iter(result)
+
+        backend.collection.aggregate = concurrent  # type: ignore[method-assign]
+        assert backend.recount("ns") == SMALL
+        assert ns_size(backend) == SMALL
+
+    def test_deleted_size(self, mongo: MongoStoreBackend) -> None:
+        """A deleted size is counted again at the next write."""
+        backend = mongo
+        store = make_store(backend, max_namespace_size=10 * SMALL)
+        store.set("a", 1)
+        store.set("b", 1)
+        backend.sizes.delete_one({"_id": "ns"})
+        store.set("c", 1)  # inserts the size of its entry only
+        assert ns_size(backend) == SMALL
+        store.set("d", 1)  # counts the namespace again first
+        assert ns_size(backend) == 4 * SMALL
+
+    def test_failed_shrinking_write(self, mongo: MongoStoreBackend) -> None:
+        """Writes that would shrink the namespace but fail don't change its size."""
+        backend = mongo
+        store = make_store(backend, max_namespace_size=10 * SMALL)
+        store.set("a", 123)
+        size = ns_size(backend)
+
+        def fail(*args: Any, **kwargs: Any) -> Any:
+            raise ExecutionTimeout("too slow")
+
+        backend.collection.find_one_and_replace = fail  # type: ignore[method-assign]
+        with pytest.raises(StoreError):
+            store.set("a", 1)
+        assert ns_size(backend) == size
+
+    def test_grow_at_the_limit(self, mongo: MongoStoreBackend) -> None:
+        """Sizes grow up to the limit exactly, and not beyond."""
+        backend = mongo
+        assert backend._grow("ns", 6, 10) is True  # inserts the size
+        assert backend._grow("ns", 4, 10) is True
+        assert backend._grow("ns", 1, 10) is False
+        assert ns_size(backend) == 10
+
+    def test_changed_in_between(self, mongo: MongoStoreBackend) -> None:
+        """Entries written between read and replacement are accounted for."""
+        backend = mongo
+        store = make_store(backend, max_namespace_size=10 * SMALL)
+        store.set("x", 1)
+        original = backend.collection.find_one_and_replace
+
+        def concurrent(*args: Any, **kwargs: Any) -> Any:
+            # another process writes a larger value first
+            original(
+                {"_id": "ns\x1fa"},
+                {"ns": "ns", "key": "a", "value": "123", "size": SMALL + 2},
+                upsert=True,
+            )
+            backend.sizes.update_one({"_id": "ns"}, {"$inc": {"size": SMALL + 2}})
+            return original(*args, **kwargs)
+
+        backend.collection.find_one_and_replace = concurrent  # type: ignore[method-assign]
+        store.set("a", 1)
+        assert ns_size(backend) == 2 * SMALL
+
+    def test_concurrent_size_insert(self, mongo: MongoStoreBackend) -> None:
+        """A size inserted concurrently is grown, if it stays within bounds."""
+        backend = mongo
+        sizes = MagicMock()
+        sizes.update_one.side_effect = [
+            DuplicateKeyError("E11000"),
+            MagicMock(matched_count=1),
+            DuplicateKeyError("E11000"),
+            MagicMock(matched_count=0),
+        ]
+        backend.sizes = sizes
+        backend._counted["ns"] = time.monotonic()
+        assert backend._grow("ns", 1, 10) is True
+        assert backend._grow("ns", 1, 10) is False
+        # the retries keep the bound of the size
+        bounded = {"_id": "ns", "size": {"$lte": 9}}
+        assert [call.args[0] for call in sizes.update_one.call_args_list] == [
+            bounded
+        ] * 4
+
+    def test_new_counter_races(self, mongo: MongoStoreBackend) -> None:
+        """Counters that replace expired entries or lose a race keep sizes right."""
+        clock = Clock()
+        backend = mongo
+        store = make_store(backend, clock, max_namespace_size=10 * SMALL)
+        counter = STORE_ENTRY_OVERHEAD + 1 + 8
+        store.set("c", 1, ttl=1)
+        clock.advance(1)
+        assert store.increment("c") == 1  # replaces the expired value
+        assert ns_size(backend) == counter
+        store.delete("c")
+        original = backend.collection.insert_one
+        calls: list[Any] = []
+
+        def racing(document: Any, *args: Any, **kwargs: Any) -> Any:
+            # another process creates the counter first, once
+            if not calls:
+                calls.append(document)
+                original({**document, "n": 5}, *args, **kwargs)
+                backend.sizes.update_one({"_id": "ns"}, {"$inc": {"size": counter}})
+            return original(document, *args, **kwargs)
+
+        backend.collection.insert_one = racing  # type: ignore[method-assign]
+        assert store.increment("c") == 6
+        assert ns_size(backend) == counter
+
+
 class TestMemoryBackend:
     """Specifics of the memory backend."""
 
@@ -529,7 +1031,17 @@ class TestMongoBackend:
         assert _aware(documents["ns\x1fc"]["expires_at"]) == clock.now + timedelta(
             seconds=60
         )
-        assert set(documents["ns\x1fc"]) == {"_id", "ns", "key", "n", "expires_at"}
+        assert set(documents["ns\x1fc"]) == {
+            "_id",
+            "ns",
+            "key",
+            "n",
+            "expires_at",
+            "size",
+        }
+        # sizes: overhead, key and value (counters: 8 bytes)
+        assert documents["ns\x1fv"]["size"] == STORE_ENTRY_OVERHEAD + 1 + 7
+        assert documents["ns\x1fc"]["size"] == STORE_ENTRY_OVERHEAD + 1 + 8
 
     @pytest.mark.mongodb
     def test_rejected_new_counter(self, mongo_backend: MongoStoreBackend) -> None:
@@ -567,10 +1079,10 @@ class TestMongoBackend:
         collection.with_options.return_value = collection
         collection.find_one_and_update.return_value = None
         # a live counter within the bounds (changed after the update), then
-        # none, as created and removed by others
-        collection.find_one.side_effect = [{"n": 0}, *[None] * 4]
+        # none (also no expired entry), as created and removed by others
+        collection.find_one.side_effect = [{"n": 0}, *[None] * 8]
         collection.insert_one.side_effect = DuplicateKeyError("dup")
-        collection.replace_one.return_value.matched_count = 0
+        collection.find_one_and_replace.return_value = None
         store = make_store(MongoStoreBackend(collection))
         with pytest.raises(StoreError, match="busy"):
             store.increment("k")
@@ -798,7 +1310,7 @@ class TestEngine:
             {
                 "available": {
                     "test.off": {"store": {"enabled": False, "max_ttl": 5}},
-                    "test.on": {},
+                    "test.on": {"store": {"max_namespace_size": 1000}},
                 },
                 "defaults": {"store": {"max_entry_size": 10}},
                 "pipeline": [],
@@ -819,6 +1331,7 @@ class TestEngine:
             assert isinstance(off.backend, MemoryStoreBackend)
             assert (on.mode, on.max_entry_size, on.max_ttl) == ("shared", 10, 2592000)
             assert on.backend is backend
+            assert (off.max_namespace_size, on.max_namespace_size) == (16777216, 1000)
             assert "namespace dist keep their store entries apart (off, shared)" in (
                 caplog.text
             )
@@ -1104,13 +1617,14 @@ class TestConfig:
     """Store settings."""
 
     def test_defaults(self) -> None:
-        """Defaults: on, 4 KiB, 30 days; overrides replace set keys only."""
+        """Defaults: on, 4 KiB, 16 MiB, 30 days; overrides replace set keys only."""
         defaults = StoreConfig()
-        assert (defaults.enabled, defaults.max_entry_size, defaults.max_ttl) == (
-            True,
-            4096,
-            2592000,
-        )
+        assert (
+            defaults.enabled,
+            defaults.max_entry_size,
+            defaults.max_namespace_size,
+            defaults.max_ttl,
+        ) == (True, 4096, 16777216, 2592000)
         assert StoreOverrideConfig().apply(defaults) == defaults
         assert StoreOverrideConfig(max_ttl=60).apply(defaults) == StoreConfig(
             max_ttl=60
@@ -1123,6 +1637,7 @@ class TestConfig:
             {"max_ttl": "inf"},
             {"max_ttl": 1e12},
             {"max_entry_size": -1},
+            {"max_namespace_size": 0},
             {"unknown": 1},
         ],
     )
