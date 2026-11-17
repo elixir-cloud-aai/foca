@@ -207,6 +207,9 @@ def test_safe_filenames(filename: str) -> None:
         ("a\\b", "backslash"),
         ("..\\x", "backslash"),
         ("a\x00b", "control"),
+        (".. /x", "ending in a dot or space"),  # Windows: `..`
+        ("a/b.", "ending in a dot or space"),
+        ("a /b", "ending in a dot or space"),
         ("a\nb", "control"),
         ("a\u202eb", "control"),
         ("a\u2028b", "control"),  # line separator
@@ -234,10 +237,11 @@ def test_check_attachments() -> None:
     """Attachments are checked for type, names, media types and limits."""
     limits = AttachmentsConfig(max_count=2, max_size=4)
     check_attachments([], limits)
-    check_attachments(None, limits)
-    check_attachments((Attachment("a", b"12"), Attachment("b/c", b"34")), limits)
+    check_attachments([Attachment("a", b"12"), Attachment("b/c", b"34")], limits)
     cases: list[tuple[Any, type[Exception], str]] = [
         ("a", InvalidRunRequest, "list"),
+        (None, InvalidRunRequest, "no list"),
+        ((Attachment("a", b""),), InvalidRunRequest, "no list"),
         ([b"a"], InvalidRunRequest, r"workflow_attachment\[0\]: no Attachment"),
         ([SmallAttachment("a", b"12345")], InvalidRunRequest, "no Attachment"),
         (
@@ -283,8 +287,8 @@ def test_check_attachments() -> None:
         ),
         (
             ShortList([Attachment(str(i), b"") for i in range(3)]),
-            AttachmentsTooLarge,
-            "more than 2",
+            InvalidRunRequest,
+            "no list",
         ),
         (
             [Attachment(str(i), b"") for i in range(3)],
@@ -301,7 +305,22 @@ def test_check_attachments() -> None:
     for attachments, error, message in cases:
         with pytest.raises(error, match=message):
             check_attachments(attachments, limits)
-    for media_type in ("text/plain", "text/plain; charset=utf-8", "a/b+json"):
+    for media_type in (
+        "text/plain; charset",
+        "text/plain; charset=",
+        'text/plain; a="b',
+        "text/plain; a=b c",
+        'text/plain; a="\x00"',
+    ):
+        with pytest.raises(InvalidRunRequest, match="media type"):
+            check_attachments([Attachment("a", b"", media_type)], limits)
+    for media_type in (
+        "text/plain",
+        "text/plain; charset=utf-8",
+        "a/b+json",
+        "text/plain;",
+        'text/plain; a="b \\" c"; d=e',
+    ):
         check_attachments([Attachment("a", b"", media_type)], limits)
     assert AttachmentsTooLarge.status == 413
     assert InvalidRunRequest.status == 400
@@ -326,10 +345,26 @@ def test_check_run_request() -> None:
     """Run requests are maps with string and JSON object fields."""
     limits = AttachmentsConfig(max_count=1)
     check_run_request(make_run_request(), limits)
-    check_run_request({"workflow_url": "https://x/y.cwl"}, limits)
-    check_run_request({"workflow_url": None, "workflow_attachment": None}, limits)
+    check_run_request({"workflow_url": "https://x/y.cwl", ATTACHMENT_FIELD: []})
+    check_run_request({"workflow_url": None, ATTACHMENT_FIELD: []}, limits)
+    check_run_request(
+        {"tags": {"a": [1, 2.5, True, None, {"b": "ü"}]}, ATTACHMENT_FIELD: []}
+    )
+    nested: Any = []
+    for _ in range(100):
+        nested = [nested]
     cases: list[tuple[Any, str]] = [
         ([], "payload: no map"),
+        ({"workflow_url": "x"}, "workflow_attachment: missing"),
+        ({ATTACHMENT_FIELD: None}, "workflow_attachment: no list"),
+        ({"workflow_url": "a\udc80"}, "workflow_url: no valid UTF-8"),
+        ({"tags": {"a": "\udc80"}}, "tags: no valid UTF-8"),
+        ({"tags": {"\udc80": "a"}}, "tags: no valid UTF-8"),
+        ({"tags": {1: "a"}}, "tags: no valid JSON"),
+        ({"workflow_params": {"a": (1, 2)}}, "workflow_params: no valid JSON"),
+        ({"workflow_params": {"a": float("inf")}}, "workflow_params: no valid"),
+        ({"workflow_params": {"a": nested}}, "workflow_params: nested too deeply"),
+        ({"workflow_params": Headers()}, "workflow_params: no JSON object"),
         ({"workflow_url": 1}, "workflow_url: no string"),
         ({"tags": "{}"}, "tags: no JSON object"),
         ({"workflow_params": []}, "workflow_params: no JSON object"),
@@ -342,6 +377,8 @@ def test_check_run_request() -> None:
         ({"other": 1}, "other: no string"),
     ]
     for payload, message in cases:
+        if isinstance(payload, dict) and "workflow_url" not in payload:
+            payload.setdefault(ATTACHMENT_FIELD, [])
         with pytest.raises(InvalidRunRequest, match=message):
             check_run_request(payload, limits)
     with pytest.raises(AttachmentsTooLarge):
@@ -417,6 +454,8 @@ def test_run_request_form() -> None:
         run_request_form({ATTACHMENT_FIELD: [Attachment("/a", b"")]})
     with pytest.raises(InvalidRunRequest, match="workflow_params"):
         run_request_form({"workflow_params": {"x": float("nan")}})
+    with pytest.raises(InvalidRunRequest, match="workflow_attachment: missing"):
+        run_request_form({"workflow_url": "x"})
     # no limits: the gateway checked them after each plugin
     many = [Attachment(str(i), b"") for i in range(300)]
     assert len(run_request_form({ATTACHMENT_FIELD: many})[1]) == 300
@@ -506,6 +545,29 @@ def test_engine_refuses_unsafe_attachments() -> None:
         update={"attachments": AttachmentsConfig(max_count=1)}
     )
     harness.run_request()
+    assert harness.executions[0].outcome == "invalid_output"
+    harness.close()
+
+
+def test_engine_checks_sanitized_runs() -> None:
+    """Runs are checked again after the app's sanitizer."""
+
+    def sanitize(payload: Any) -> Any:
+        """Add an unsafe file.
+
+        Args:
+            payload: Run.
+
+        Returns:
+            Run with an unsafe file.
+        """
+        files = [*payload[ATTACHMENT_FIELD], Attachment("../x", b"")]
+        return {**payload, ATTACHMENT_FIELD: files}
+
+    harness = PluginHarness(NoopPlugin, api="wes", on_failure="skip")
+    harness.host._sanitize = sanitize
+    result = harness.run_request()
+    assert [a.filename for a in result.payload[ATTACHMENT_FIELD]] == ["main.cwl"]
     assert harness.executions[0].outcome == "invalid_output"
     harness.close()
 

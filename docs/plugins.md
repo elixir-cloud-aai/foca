@@ -346,9 +346,12 @@ def on_request(self, request: InboundRequest, ctx: Context) -> None:
 ```
 
 After each `request` and `forward` hook of a WES gateway that got a run,
-the engine checks the run, as it re-validates payloads: output whose fields
-have the wrong types (JSON fields must be `dict`s of JSON values, without
-`NaN`), whose attachments are no list of `Attachment`s, or that has an
+the engine checks the run, as it re-validates payloads (and again after
+the app's `sanitize`): output whose fields have the wrong types (text
+fields must be strings, and JSON fields `dict`s of JSON values: `dict`s
+with string keys, `list`s, strings, finite numbers, booleans and `None`,
+nested at most 64 levels; no tuples, sets or `NaN`; strings valid UTF-8),
+whose attachments are no `list` of `Attachment`s (or missing), or that has an
 unsafe filename, a filename twice (or as a directory of another file, or
 inside another file; compared after NFKC normalization and ignoring case,
 as servers may do), an invalid media type, or more files or bytes than
@@ -356,7 +359,8 @@ as servers may do), an invalid media type, or more files or bytes than
 counts as invalid (`invalid_output`), and the next alternative is tried.
 Safe filenames are relative paths below the run's directory, with `/` as
 separator: not empty, not absolute (no leading `/`, no drive such as `C:`),
-without backslashes, without empty, `.` or `..` segments, without control
+without backslashes, without empty, `.` or `..` segments or segments
+ending in a dot or space (which Windows drops), without control
 or format characters (e.g., NUL, line breaks and line separators,
 bidirectional overrides), valid UTF-8 of at most 1024 bytes, with segments
 of at most 255 bytes; their NFKC normalization must be safe too, also in
@@ -383,6 +387,7 @@ from foca.plugins.wes import (
 host = get_host()  # the app's plugin host
 try:
     run = parse_run_request(
+        # limit the request body in the web server first (see below)
         form,  # the text fields, e.g., {"workflow_url": "main.cwl", "tags": "{}"}
         [  # the uploaded files; filenames are checked below
             Attachment(f.filename or "", f.read(), f.mimetype or "text/plain")

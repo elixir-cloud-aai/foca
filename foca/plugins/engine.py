@@ -1576,6 +1576,8 @@ class PipelineRun:
             check_reserved_tags(given.payload, candidate.payload, prefix)
             self._check_run(candidate.payload, given.payload)
             candidate.payload = self.host.check_payload(candidate.payload)
+            # the app's sanitizer must keep the run valid, too
+            self._check_run(candidate.payload, given.payload)
             return candidate
 
         self.inbound = self._run_phase(

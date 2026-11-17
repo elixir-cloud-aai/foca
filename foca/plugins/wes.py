@@ -39,6 +39,7 @@ Examples:
 """
 
 import json
+import math
 import re
 import unicodedata
 from collections.abc import Iterable, Mapping
@@ -68,10 +69,15 @@ MAX_FILENAME_SIZE = 1024
 MAX_SEGMENT_SIZE = 255
 """Maximum size of each segment of attachment filenames, in UTF-8 bytes."""
 
-# RFC 9110, section 8.3.1: type "/" subtype, with optional parameters of
-# printable ASCII characters
+MAX_JSON_DEPTH = 64
+"""Maximum depth of the values of JSON fields of run requests."""
+
+# RFC 9110, sections 8.3.1 and 5.6.6: type "/" subtype, then parameters
+# (`;` with an optional name "=" value, the value a token or quoted string)
 _TCHARS = r"[!#$%&'*+.^_`|~0-9A-Za-z-]+"
-_MEDIA_TYPE = re.compile(rf"{_TCHARS}/{_TCHARS}(?:[ \t]*;[\x20-\x7e]*)?")
+_QUOTED = r'"(?:[\t \x21\x23-\x5b\x5d-\x7e]|\\[\t\x20-\x7e])*"'
+_PARAMETER = rf"[ \t]*;[ \t]*(?:{_TCHARS}=(?:{_TCHARS}|{_QUOTED}))?"
+_MEDIA_TYPE = re.compile(rf"{_TCHARS}/{_TCHARS}(?:{_PARAMETER})*")
 _DRIVE = re.compile(r"[A-Za-z]:")
 # control, format (e.g., bidirectional overrides), surrogate characters, and
 # line and paragraph separators
@@ -109,7 +115,8 @@ def _check_path(path: str) -> None:
 
     Raises:
         InvalidRunRequest: The path is absolute, has a drive, a backslash,
-            or an empty, `.` or `..` segment.
+            or an empty, `.` or `..` segment, or a segment ending in a dot or
+            space (which Windows drops, e.g., turning `.. ` into `..`).
     """
     if "\\" in path:
         raise InvalidRunRequest("filename has a backslash")
@@ -122,6 +129,8 @@ def _check_path(path: str) -> None:
             raise InvalidRunRequest("filename has an empty segment")
         if segment in (".", ".."):
             raise InvalidRunRequest("filename has a '.' or '..' segment")
+        if segment.endswith((".", " ")):
+            raise InvalidRunRequest("filename has a segment ending in a dot or space")
 
 
 def check_filename(filename: object) -> str:
@@ -129,7 +138,8 @@ def check_filename(filename: object) -> str:
 
     Safe filenames are relative paths below the run's directory, with `/`
     as separator: not empty, not absolute (no leading `/`, no drive such as
-    `C:`), without backslashes, without empty, `.` or `..` segments, without
+    `C:`), without backslashes, without empty, `.` or `..` segments or
+    segments ending in a dot or space (which Windows drops), without
     control or format characters (e.g., NUL, line breaks and line
     separators, bidirectional overrides), valid UTF-8 of at most
     :py:data:`MAX_FILENAME_SIZE` bytes, with segments of at most
@@ -181,7 +191,7 @@ def _check_files(attachments: object, limits: AttachmentsConfig | None) -> list[
     """Check the attachments of a run request.
 
     Args:
-        attachments: Attachments; `None` for none.
+        attachments: Attachments.
         limits: Limits of number and total size; none if `None`.
 
     Returns:
@@ -191,11 +201,9 @@ def _check_files(attachments: object, limits: AttachmentsConfig | None) -> list[
         AttachmentsTooLarge: The attachments exceed the limits.
         InvalidRunRequest: The attachments are invalid.
     """
-    if attachments is None:
-        return []
-    if not isinstance(attachments, list | tuple):
+    # a plain list, so that subclasses cannot misreport their items
+    if type(attachments) is not list:
         raise InvalidRunRequest(f"{ATTACHMENT_FIELD}: no list")
-    # a plain list, so that subclasses cannot misreport their length
     items = list(attachments)
     if limits is not None and len(items) > limits.max_count:
         raise AttachmentsTooLarge(
@@ -240,8 +248,8 @@ def check_attachments(
     """Check the attachments of a run request.
 
     Args:
-        attachments: Attachments (a list or tuple of
-            :py:class:`foca.plugins.model.Attachment`); `None` for none.
+        attachments: Attachments (a `list` of
+            :py:class:`foca.plugins.model.Attachment`).
         limits: Limits of number and total size (`plugins.attachments`, e.g.,
             `host.conf.attachments`); defaults to those of
             :py:class:`foca.plugins.config.AttachmentsConfig`.
@@ -249,7 +257,7 @@ def check_attachments(
     Raises:
         AttachmentsTooLarge: There are more files, or more bytes, than the
             limits allow (`413`).
-        InvalidRunRequest: The attachments are no list, or an item is no
+        InvalidRunRequest: The attachments are no `list`, or an item is no
             attachment, has an unsafe filename (cf. :py:func:`check_filename`)
             or an invalid media type, or names a file twice, or as a
             directory of another file, or inside another file, also when
@@ -270,26 +278,67 @@ def _no_constant(constant: str) -> Any:
     raise ValueError(f"no JSON: {constant}")
 
 
-def _to_json(name: str, value: Any) -> str:
-    """Serialize a JSON field of a run request.
+_JSON_SCALARS = (str, int, float, bool, type(None))
+
+
+def _check_text(name: str, value: str) -> None:
+    """Check that a string can be encoded in UTF-8.
 
     Args:
         name: Name of the field.
+        value: String.
+
+    Raises:
+        InvalidRunRequest: The string has unpaired surrogates.
+    """
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        raise InvalidRunRequest(f"{name}: no valid UTF-8") from None
+
+
+def _check_json(name: str, value: Any, depth: int = 0) -> None:
+    """Check that a value is JSON, unchanged by serialization.
+
+    Args:
+        name: Name of the field.
+        value: Value.
+        depth: Depth of the value in the field.
+
+    Raises:
+        InvalidRunRequest: The value, or one in it, is no `dict` with string
+            keys, `list`, string, number, boolean or `None` (e.g., a tuple,
+            a set or bytes), a non-finite number, or a string with unpaired
+            surrogates, or the value is nested too deeply.
+    """
+    if depth > MAX_JSON_DEPTH:
+        raise InvalidRunRequest(f"{name}: nested too deeply")
+    kind = type(value)
+    if kind is dict:
+        for key, item in value.items():
+            if type(key) is not str:
+                raise InvalidRunRequest(f"{name}: no valid JSON (key no string)")
+            _check_text(name, key)
+            _check_json(name, item, depth + 1)
+    elif kind is list:
+        for item in value:
+            _check_json(name, item, depth + 1)
+    elif kind not in _JSON_SCALARS or (kind is float and not math.isfinite(value)):
+        raise InvalidRunRequest(f"{name}: no valid JSON")
+    elif kind is str:
+        _check_text(name, value)
+
+
+def _to_json(value: Any) -> str:
+    """Serialize a JSON field of a run request, checked by `_check_json()`.
+
+    Args:
         value: Value of the field.
 
     Returns:
         Compact JSON.
-
-    Raises:
-        InvalidRunRequest: The value has values that are no JSON (e.g.,
-            `NaN`, sets or bytes).
     """
-    try:
-        return json.dumps(
-            value, ensure_ascii=False, allow_nan=False, separators=(",", ":")
-        )
-    except (TypeError, ValueError, RecursionError):
-        raise InvalidRunRequest(f"{name}: no valid JSON") from None
+    return json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
 
 
 def _check_fields(payload: object) -> Mapping[Any, Any]:
@@ -313,11 +362,13 @@ def _check_fields(payload: object) -> Mapping[Any, Any]:
         if name == ATTACHMENT_FIELD or value is None:
             continue
         if name in JSON_FIELDS:
-            if not isinstance(value, dict):
+            if type(value) is not dict:
                 raise InvalidRunRequest(f"{name}: no JSON object")
-            _to_json(name, value)
+            _check_json(name, value)
         elif type(value) is not str:
             raise InvalidRunRequest(f"{name}: no string")
+        else:
+            _check_text(name, value)
     return payload
 
 
@@ -336,13 +387,16 @@ def check_run_request(payload: object, limits: AttachmentsConfig | None = None) 
     Raises:
         AttachmentsTooLarge: The attachments exceed the limits (`413`).
         InvalidRunRequest: The run request is no mapping, the JSON fields
-            are no `dict`s of JSON values (e.g., no `NaN`), other fields
-            (`None` aside) no strings, or the
-            attachments are invalid (cf. :py:func:`check_attachments`)
-            (`400`).
+            are no `dict`s of JSON values (with string keys, finite numbers,
+            no tuples or sets, at most :py:data:`MAX_JSON_DEPTH` levels),
+            other fields (`None` aside) no strings, a string is no valid
+            UTF-8, `workflow_attachment` is missing, or the attachments are
+            invalid (cf. :py:func:`check_attachments`) (`400`).
     """
     fields = _check_fields(payload)
-    check_attachments(fields.get(ATTACHMENT_FIELD), limits)
+    if ATTACHMENT_FIELD not in fields:
+        raise InvalidRunRequest(f"{ATTACHMENT_FIELD}: missing")
+    check_attachments(fields[ATTACHMENT_FIELD], limits)
 
 
 def parse_run_request(
@@ -402,14 +456,15 @@ def run_request_form(
 
     Raises:
         InvalidRunRequest: The run request is invalid (cf.
-            :py:func:`check_run_request`), or a JSON field has values that
-            are no JSON (e.g., `NaN`).
+            :py:func:`check_run_request`).
     """
     _check_fields(payload)
-    files = _check_files(payload.get(ATTACHMENT_FIELD), None)
+    if ATTACHMENT_FIELD not in payload:
+        raise InvalidRunRequest(f"{ATTACHMENT_FIELD}: missing")
+    files = _check_files(payload[ATTACHMENT_FIELD], None)
     fields: dict[str, str] = {}
     for name, value in payload.items():
         if name == ATTACHMENT_FIELD or value is None:
             continue
-        fields[name] = _to_json(name, value) if name in JSON_FIELDS else value
+        fields[name] = _to_json(value) if name in JSON_FIELDS else value
     return fields, files
