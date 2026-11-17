@@ -196,7 +196,8 @@ def _check_files(attachments: object, limits: AttachmentsConfig | None) -> list[
     total = 0
     for index, attachment in enumerate(attachments):
         field = f"{ATTACHMENT_FIELD}[{index}]"
-        if not isinstance(attachment, Attachment):
+        # not subclasses, which could override the checked fields
+        if type(attachment) is not Attachment:
             raise InvalidRunRequest(f"{field}: no Attachment")
         try:
             name = check_filename(attachment.filename)
@@ -213,7 +214,7 @@ def _check_files(attachments: object, limits: AttachmentsConfig | None) -> list[
             raise InvalidRunRequest(f"{field}: filename is in a file of another")
         files.add(name)
         directories.update(parents)
-        total += attachment.size
+        total += len(attachment.content)
         if limits is not None and total > limits.max_size:
             raise AttachmentsTooLarge(
                 f"{ATTACHMENT_FIELD}: more than {limits.max_size} bytes"
@@ -333,7 +334,7 @@ def parse_run_request(
         payload[name] = parsed
     files = list(attachments)
     for index, attachment in enumerate(files):
-        if not isinstance(attachment, Attachment):
+        if type(attachment) is not Attachment:
             raise InvalidRunRequest(f"{ATTACHMENT_FIELD}[{index}]: no Attachment")
     payload[ATTACHMENT_FIELD] = files
     return payload

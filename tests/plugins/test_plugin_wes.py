@@ -77,6 +77,19 @@ class UnsafePlugin(AttachPlugin):
     filename = "../main.cwl"
 
 
+class SmallAttachment(Attachment):
+    """Attachment that claims to be empty."""
+
+    @property
+    def size(self) -> int:
+        """Claim to be empty.
+
+        Returns:
+            0.
+        """
+        return 0
+
+
 class NoopPlugin(Plugin[EmptyModel, EmptyModel]):
     """Change nothing."""
 
@@ -176,6 +189,7 @@ def test_check_attachments() -> None:
     cases: list[tuple[Any, type[Exception], str]] = [
         ("a", InvalidRunRequest, "list"),
         ([b"a"], InvalidRunRequest, r"workflow_attachment\[0\]: no Attachment"),
+        ([SmallAttachment("a", b"12345")], InvalidRunRequest, "no Attachment"),
         (
             [Attachment("a", b""), Attachment("../b", b"")],
             InvalidRunRequest,
