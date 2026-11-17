@@ -158,6 +158,7 @@ from foca.plugins.store import (
     StoreSettings,
 )
 from foca.plugins.tags import check_reserved_tags
+from foca.plugins.wes import check_run_request
 from foca.utils.http import GuardedClient
 from foca.utils.misc import describe_validation_error
 
@@ -202,6 +203,10 @@ def _store_setup_log(exc: PyMongoError) -> tuple[int, str]:
 MAX_VIA_LENGTH = 1024
 """Maximum length of outbound `Via` headers (the inbound header plus this
 gateway's entry), in characters."""
+
+PAYLOAD_TAG_APIS = frozenset({"tes", "wes"})
+"""APIs whose payloads have the request's tags as `tags`: TES tasks, and WES
+runs as plugins see them (cf. :py:mod:`foca.plugins.wes`)."""
 
 _GATEWAY_ID = re.compile(GATEWAY_ID_PATTERN)
 
@@ -915,9 +920,11 @@ class PluginHost:
             inbound: Inbound request, after the app's checks and sanitation.
             principal: Authenticated caller.
             request_id: Identifier of the request, for logs.
-            tags: Tags of the request (a string map, or `None`), e.g., the
-                parsed `tags` form field of WES; required for APIs other
-                than `tes`, whose default is the `tags` of the task.
+            tags: Tags of the request (a string map, or `None`); defaults
+                to the `tags` of the payload for the APIs of
+                :py:data:`PAYLOAD_TAG_APIS` (the task of TES, the parsed
+                form of WES runs, cf. :py:mod:`foca.plugins.wes`), and is
+                required for other APIs.
 
         Returns:
             Run of the request.
@@ -930,7 +937,8 @@ class PluginHost:
             foca.plugins.selection.InvalidSelection: The tags are not a
                 mapping, or the client's choices are invalid or not allowed
                 (`400`), e.g., as the caller is not authenticated.
-            TypeError: `tags` is not given for an API other than `tes`.
+            TypeError: `tags` is not given for an API other than those of
+                :py:data:`PAYLOAD_TAG_APIS`.
         """
         own = len(f", 1.1 {self.gateway_id}") if self.gateway_id is not None else 0
         if len(inbound.headers.get("Via", "")) > MAX_VIA_LENGTH - own:
@@ -940,7 +948,7 @@ class PluginHost:
         ):
             raise LoopDetected(f"Request already passed gateway {self.gateway_id}")
         if tags is _FROM_PAYLOAD:
-            if self.api != "tes":
+            if self.api not in PAYLOAD_TAG_APIS:
                 raise TypeError(f"Pass the tags of {self.api} requests: start(tags=)")
             payload = inbound.payload
             tags = payload.get("tags") if isinstance(payload, Mapping) else None
@@ -1509,6 +1517,41 @@ class PipelineRun:
             for alt in step.alternatives
         )
 
+    def _check_run(self, payload: Any, given: Any) -> None:
+        """Check the payload of a WES run after a hook, as for re-validation.
+
+        Args:
+            payload: Payload after the hook.
+            given: Payload given to the hook.
+
+        Raises:
+            foca.plugins.wes.InvalidRunRequest: The host's API is WES, the
+                hook got a run request (a mapping), and the payload is no
+                valid run request (e.g., an unsafe filename), or exceeds
+                the limits of `plugins.attachments`.
+        """
+        if self.host.api == "wes" and isinstance(given, Mapping):
+            check_run_request(payload, self.host.conf.attachments)
+
+    def _check_forward_output(
+        self, candidate: OutboundRequest, given: OutboundRequest
+    ) -> OutboundRequest:
+        """Check the output of a `forward` hook.
+
+        Args:
+            candidate: Outbound request after the hook.
+            given: Outbound request given to the hook.
+
+        Returns:
+            The outbound request, as checked by `foca.plugins.checks`.
+
+        Raises:
+            Exception: The output is invalid (cf. `foca.plugins.checks` and
+                :py:meth:`_check_run`).
+        """
+        self._check_run(candidate.payload, given.payload)
+        return _check_forward(candidate, given)
+
     def request(self) -> InboundRequest:
         """Run the `request` phase.
 
@@ -1516,7 +1559,10 @@ class PipelineRun:
             The inbound request after the phase (also in `inbound`).
 
         Output that adds, changes or removes tags under the reserved prefix
-        (cf. :py:func:`foca.plugins.tags.check_reserved_tags`) is invalid.
+        (cf. :py:func:`foca.plugins.tags.check_reserved_tags`) is invalid,
+        and so are WES runs with unsafe filenames or more or larger
+        attachments than `plugins.attachments` allows (cf.
+        :py:func:`foca.plugins.wes.check_run_request`).
 
         Raises:
             PipelineRejected: A plugin rejected the request.
@@ -1528,7 +1574,10 @@ class PipelineRun:
         def check(candidate: InboundRequest, given: InboundRequest) -> InboundRequest:
             # plugins must not forge (or drop) gateway tags
             check_reserved_tags(given.payload, candidate.payload, prefix)
+            self._check_run(candidate.payload, given.payload)
             candidate.payload = self.host.check_payload(candidate.payload)
+            # the app's sanitizer must keep the run valid, too
+            self._check_run(candidate.payload, given.payload)
             return candidate
 
         self.inbound = self._run_phase(
@@ -1626,7 +1675,7 @@ class PipelineRun:
                 outbound = self._run_phase(
                     "forward",
                     build(backend, self.inbound),
-                    check=_check_forward,
+                    check=self._check_forward_output,
                     deadline=budget_end,
                     attempt=number,
                 )
