@@ -76,11 +76,12 @@ rules:
     pattern-sources:
       # The unverified header, and anything taken from it
       - pattern: jwt.get_unverified_header(...)
-      # Any string literal `none`, in any case
-      - pattern: '"=~/^[nN][oO][nN][eE]$/"'
-    pattern-sanitizers:
-      # `none` removed from a set of algorithms
-      - pattern: '$ALGORITHMS - {..., "=~/^[nN][oO][nN][eE]$/", ...}'
+      # Any string literal `none`, in any case, but where it is removed from
+      # a set of algorithms (not a sanitizer, which would also clear the
+      # header's taint)
+      - patterns:
+          - pattern: '"=~/^[nN][oO][nN][eE]$/"'
+          - pattern-not-inside: "$ALGORITHMS - {...}"
     pattern-sinks:
       - patterns:
           - pattern: $JWT.$DECODE(..., algorithms=$ALGORITHMS, ...)

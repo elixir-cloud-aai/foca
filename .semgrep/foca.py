@@ -140,6 +140,13 @@ def decode_without_none(token: str, algorithms: set[str]) -> dict:
     return jwt.decode(token, KEY, algorithms=list(allowed))
 
 
+def decode_with_header_algorithm_without_none(token: str) -> dict:
+    """Decode a token with the algorithm that its header names, but `none`."""
+    algorithms = {jwt.get_unverified_header(token)["alg"]} - {"none"}
+    # ruleid: jwt-decode-unsafe-algorithms
+    return jwt.decode(token, KEY, algorithms=list(algorithms))
+
+
 # ok: jwt-decode-unsafe-algorithms
 jwt.decode(TOKEN, KEY, algorithms=["none-of-these"])
 # ok: jwt-decode-unsafe-algorithms
