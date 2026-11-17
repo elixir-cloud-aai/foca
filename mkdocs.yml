@@ -149,6 +149,7 @@ nav:
       - "0.19.0": releases/0.19.0.md
       - "0.18.0": releases/0.18.0.md
       - Library chart foca-common:
+          - "0.6.0": releases/chart/0.6.0.md
           - "0.5.0": releases/chart/0.5.0.md
           - "0.4.0": releases/chart/0.4.0.md
           - "0.3.0": releases/chart/0.3.0.md

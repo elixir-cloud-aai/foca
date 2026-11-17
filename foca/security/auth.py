@@ -513,11 +513,12 @@ def namespace_subject(
 ) -> str | None:
     """Namespace a subject by its issuer, as used for access control.
 
-    Subjects are namespaced as `<namespace>|<subject>` if the issuer has a
-    namespace (cf. :py:class:`foca.models.config.IssuerConfig`), so that
-    equal subjects of different issuers are different users. Use this to
-    name users of an issuer, e.g., in policy rules or when granting them
-    roles.
+    Subjects are namespaced as `<namespace>|<subject>`, by default with the
+    issuer as namespace, also if only one issuer is trusted (cf.
+    :py:class:`foca.models.config.IssuerConfig`), so that equal subjects of
+    different issuers are different users, and trusting another issuer
+    changes no stored subject. Use this to name users of an issuer, e.g., in
+    policy rules or when granting them roles.
 
     Args:
         subject: Subject, as issued (e.g., the `sub` claim).
@@ -527,10 +528,11 @@ def namespace_subject(
             app.
 
     Returns:
-        The subject, namespaced if its issuer has a namespace; `None` if
-        subjects are namespaced, but the issuer is not trusted, or the
-        subject is bare and contains `|`, so that it could collide with a
-        namespaced subject.
+        The subject, namespaced unless its issuer keeps its subjects bare
+        (empty `namespace`), or no issuer has a namespace (e.g., none is
+        trusted); `None` if subjects are namespaced, but the issuer is not
+        trusted, or the subject is bare and contains `|`, so that it could
+        collide with a namespaced subject.
     """
     if conf is None:
         conf = get_config().security.auth

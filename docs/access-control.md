@@ -268,8 +268,15 @@ security:
     policies:
       - [p, "*", /services, POST]
       - [p, owner, "/services/:id", "(PUT)|(DELETE)"]
-      - [g, "user:alice", admin]
+      - [g, "user:https://login.example.org/oidc/|alice", admin]
 ```
+
+Users are named with the namespace of their issuer, by default the issuer
+(cf. [several trusted issuers](authentication.md#several-trusted-issuers)).
+FOCA refuses to start if a configured rule names a user that no trusted
+issuer has, e.g., without namespace (with a custom model, it only warns),
+and logs a warning on startup if a stored rule does (see [startup
+checks](configuration/access-control.md#startup-checks)).
 
 On startup, FOCA validates the rules against the model (cf. [rule
 values](#rule-values)), refusing to start if any rule is invalid. It then
@@ -346,7 +353,7 @@ security:
     policies:
       create-services: [p, "*", /services, POST]
       owners-manage: [p, owner, "/services/:id", "(PUT)|(DELETE)"]
-      alice-admin: [g, "user:alice", admin]
+      alice-admin: [g, "user:https://login.example.org/oidc/|alice", admin]
 ```
 
 Named rules are stored like listed ones (names are not stored, so switching
@@ -695,11 +702,11 @@ if group settings keep groups from applying (see [startup
 checks](configuration/access-control.md#startup-checks)).
 
 !!! warning "Several trusted issuers"
-    With several trusted issuers (`security.auth.issuers`), subjects are
-    namespaced by issuer (e.g., `user:https://login.example.org/oidc/|alice`;
-    cf. [several trusted
+    Subjects are namespaced by issuer (e.g.,
+    `user:https://login.example.org/oidc/|alice`; cf. [several trusted
     issuers](authentication.md#several-trusted-issuers)), but group claim
-    values are not: a rule for `group:<value>`, and a `group_mapping` of
+    values are not: with several trusted issuers
+    (`security.auth.issuers`), a rule for `group:<value>`, and a `group_mapping` of
     `<value>`, apply to tokens of _all_ trusted issuers. If several issuers
     can issue the same group claim value to different users (e.g., if users
     can create groups at one of them), these users get each other's rights,
@@ -714,7 +721,7 @@ To keep users, groups and roles apart, subjects are namespaced in rules:
 
 | Subject | In rules | Example |
 | --- | --- | --- |
-| User identifier | prefixed with `subject_prefix` (default: `user:`) | `user:alice` |
+| User identifier, namespaced by issuer | prefixed with `subject_prefix` (default: `user:`) | `user:https://login.example.org/oidc/|alice` |
 | Group claim value without `group_mapping` or with `keep_group_subjects` | prefixed with `group:` | `group:vo-members` |
 | Client ID of a [service client](#service-clients) | prefixed with `client:` | `client:conquest` |
 | Role (from `group_mapping`, `client_mapping` or `g` rules) | as is | `admin` |
@@ -723,13 +730,12 @@ This way, a user whose identifier equals a role name (e.g., `admin`), or an
 identity provider group of that name, is not granted that role. For the same
 reason, `subject_prefix` must not be empty and must not overlap with
 `group:` or `client:`. All rules, including those for the permissions API,
-must use these forms (e.g., `p, user:alice,
+must use these forms (e.g., `p, user:https://login.example.org/oidc/|alice,
 /admin/access-control/permissions, GET`); rules naming unprefixed user
-identifiers do not match.
+identifiers, or users without the namespace of their issuer, do not match.
 
 In your controllers, use `get_current_subject()` and `get_current_groups()`
-to get the subject (without prefix; namespaced by issuer with several
-trusted issuers) and roles of the current request, and
+to get the subject (without prefix; namespaced by issuer) and roles of the current request, and
 `get_current_group_values()` to get the values of its group claim
 (`get_claim_groups(issuer)` returns the group claim applying to tokens of an
 issuer) as is
@@ -909,10 +915,13 @@ p, owner, /services/:id, (GET)|(PUT)|(DELETE)    # owners: full access
 p, maintainer, /services/:id, (GET)|(PUT)        # maintainers: read/update
 p, owner, /services/:id/permissions, (GET)|(PUT) # owners: manage access
 p, group:vo-members, /services/:id, GET          # raw group claim value
-g2, user:alice, owner, /services/123             # alice owns /services/123
+g2, user:ls|alice, owner, /services/123          # alice owns /services/123
 g2, group:team-x, maintainer, /services/123      # team-x maintains it
-g, user:bob, admin                               # bob is an admin
+g, user:ls|bob, admin                            # bob is an admin
 ```
+
+(Users of an issuer with the namespace `ls`; cf. [several trusted
+issuers](authentication.md#several-trusted-issuers).)
 
 Actions (HTTP methods) in `p` rules are regular expressions that must match
 the _whole_ method: `GET` matches `GET` only (not, e.g., a method containing
@@ -1554,7 +1563,7 @@ paths:
   /tasks/{id}/permissions/users/{userId}:
     parameters:
       - {name: id, in: path, required: true, schema: {type: string}}
-      # namespaced users (several trusted issuers) may contain slashes
+      # users, namespaced by issuer, may contain slashes
       - {name: userId, in: path, required: true, schema: {type: string, format: path}}
     put:
       operationId: foca.security.access_control.ownership_server.putUserRole
@@ -1683,7 +1692,7 @@ GET /admin/access-control/permissions?page_size=2&page=0
 {
   "results": [
     {"id": "aB3dE9", "policy_type": "p", "rule": {"v0": "*", "v1": "/services", "v2": "POST"}},
-    {"id": "Xy7Qr2", "policy_type": "g", "rule": {"v0": "user:bob", "v1": "admin"}}
+    {"id": "Xy7Qr2", "policy_type": "g", "rule": {"v0": "user:ls|bob", "v1": "admin"}}
   ],
   "pagination": {"page": 0, "page_size": 2, "total": 16, "total_pages": 8}
 }
@@ -1693,7 +1702,10 @@ GET /admin/access-control/permissions?page_size=2&page=0
   permissions per page; `page` (default: 0) is the page to return.
 * Permissions are returned in the order they were created.
 * Requests for pages beyond the last page (except page 0 if there are no
-  permissions) or with a `page_size` out of range are rejected with `400`.
+  permissions) or with a `page_size` out of range are rejected with `400`,
+  naming the parameter (`page` or `page_size`) as an [invalid
+  field](problems/invalid-request.md) with the code `too-small` or
+  `too-large`.
 * Pages are not guaranteed to be consistent with each other: if permissions
   are created or deleted while paging, permissions may be skipped or returned
   twice.
@@ -1705,7 +1717,7 @@ permissions that _apply to them_ via `GET /permissions` and
 `GET /permissions/{id}`, i.e., rules whose subject (`v0`) is
 
 * the subject's identifier, prefixed with `subject_prefix` (e.g.,
-  `user:alice`), including its role assignments (e.g., `g` and `g2` rules),
+  `user:https://login.example.org/oidc/|alice`), including its role assignments (e.g., `g` and `g2` rules),
 * one of the subject's roles from group claims (cf. [identity and group
   claims](#identity-and-group-claims)), or
 * `*` (any authenticated subject).
@@ -1742,7 +1754,26 @@ model):
 * Values of `act` fields of policy definitions (e.g., `p = sub, obj, act`)
   must be valid regular expressions.
 
-The permissions API responds with `400` to invalid rules. Requests to
+The permissions API responds with `400` to invalid rules and identifiers,
+naming the invalid field in `errors` (see [invalid
+requests](problems/invalid-request.md#codes-of-the-permissions-api)), e.g.:
+
+```json
+{
+  "type": "https://foca.readthedocs.io/en/latest/problems/invalid-request/",
+  "status": 400,
+  "code": "invalid-request",
+  "errors": [
+    {
+      "detail": "Rule values must not contain commas or line breaks.",
+      "pointer": "#/rule/v0",
+      "code": "invalid-character"
+    }
+  ]
+}
+```
+
+Like all entries of `errors`, they never quote the rejected value. Requests to
 enforced operations whose subject is not a valid value (e.g., an identity
 claim containing a comma) are denied with `403`. Stored rules that are not
 valid (e.g., added to the database directly) are skipped with a warning when

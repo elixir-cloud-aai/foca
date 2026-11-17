@@ -93,7 +93,7 @@ is enabled, `Foca.create_app()` checks them, and refuses to start
 - **Admins:** the groups (via `group_mapping`) and service clients (via
   `client_mapping`) mapped to the role `admin` are logged (`INFO`). If none
   is mapped to it and no rule of `policies` grants it (e.g., `[g,
-  "user:alice", admin]`), a warning is logged, as nobody is then an admin
+  "user:https://login.example.org/oidc/|alice", admin]`), a warning is logged, as nobody is then an admin
   via mappings or configured rules. Rules for groups (`group:<value>`)
   count only if `claim_groups` is set and group claim values are used as
   group subjects (see below). Only direct
@@ -132,6 +132,32 @@ is enabled, `Foca.create_app()` checks them, and refuses to start
   (e.g., written via the permissions API), otherwise at `INFO`, as apps that
   only map groups to roles lose nothing. Set `keep_group_subjects: true` if
   the app grants roles to groups.
+- **Users:** users are named in rules with the namespace of their issuer
+  (`user:<namespace>|<subject>`, cf. [several trusted
+  issuers](../authentication.md#several-trusted-issuers)). Users without
+  namespace are fine only if an issuer keeps its subjects bare (`namespace:
+  ""`). Rules naming a user that no trusted issuer has, e.g., without
+  namespace (`user:alice`), apply to nobody, so that a missed migration
+  (e.g., of admins) would go unnoticed.
+    - **Configured rules:** the app refuses to start if a rule of `policies`
+      names such a user. The error names the rules (by name for [named
+      rules](../access-control.md#configuring-policies), otherwise by
+      position), but not the users. Name the users with namespace (e.g.,
+      `user:https://login.example.org/oidc/|alice`), or keep the subjects
+      of the issuer bare.
+    - **Custom models:** with a `model` that is neither one that FOCA ships
+      (`foca:<file>`) nor a copy of one (compared without whitespace and
+      comments), configured rules naming such users are only warned about,
+      as the model may match users in other ways (e.g., `user:*` with
+      `keyMatch`).
+    - **Stored rules:** a warning is logged if a stored rule names such a
+      user (e.g., written via the permissions API, or stored before FOCA
+      0.23.0, cf. [Migrating to
+      0.23.0](../migration-0.23.md#subjects-are-always-namespaced-by-issuer));
+      namespace them with [`foca
+      namespace-subjects`](../cli.md#namespace-subjects). This check runs
+      where stored configured rules are replaced (on startup, or with
+      [`foca sync-policies`](../cli.md#sync-policies)).
 - **Opt-in roles:** the opt-in roles and their header are logged
   (`INFO`), and a warning is logged for opt-in roles that no group is
   mapped to (no user can opt in to them), and if CORS is enabled but

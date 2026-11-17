@@ -52,10 +52,11 @@ repos:
   - repo: local
     hooks:
       # Uses ast-grep of the dev dependencies (`pip install -e ".[dev]"`);
-      # rules in `.ast-grep/` (`sgconfig.yml`)
+      # rules in `.ast-grep/` (`sgconfig.yml`); Flask imports in the examples
+      # fail the hook (`flask-import` is a warning for apps)
       - id: ast-grep
         name: ast-grep
-        entry: ast-grep scan
+        entry: ast-grep scan --error=flask-import
         language: system
         types: [python]
       - id: ast-grep-test

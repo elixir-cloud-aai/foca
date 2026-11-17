@@ -16,11 +16,12 @@ import yaml
 from flask import Flask
 from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
-from werkzeug.exceptions import BadRequest, Conflict, NotFound
+from werkzeug.exceptions import Conflict, NotFound
 
 from foca import audit, context
 from foca.config.access import _set_app_config
 from foca.context import RequestIdMiddleware
+from foca.errors import InvalidFieldsProblem
 from foca.models.config import AccessControlConfig, Config, LogConfig, MongoConfig
 from foca.security.access_control import ownership
 from foca.security.access_control.access_control_server import (
@@ -572,7 +573,7 @@ class TestPermissionsApi:
             {**deepcopy(MOCK_RULE), "id": "configured", "configured": True}
         )
         with request_context(app=permissions_app):
-            with pytest.raises(BadRequest):
+            with pytest.raises(InvalidFieldsProblem):
                 unwrap(putPermission)(id="x", body=deepcopy(MOCK_PERMISSION))
             with pytest.raises(NotFound):
                 unwrap(deletePermission)(id=MOCK_ID)
@@ -580,7 +581,7 @@ class TestPermissionsApi:
                 unwrap(deletePermission)(id="configured")
         with (
             request_context(app=permissions_app),
-            pytest.raises(BadRequest),
+            pytest.raises(InvalidFieldsProblem),
         ):
             unwrap(postPermission)(body={"policy_type": "p"})
         assert _events(caplog) == []

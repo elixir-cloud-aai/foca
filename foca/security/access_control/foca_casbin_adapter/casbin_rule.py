@@ -16,6 +16,41 @@ _FORBIDDEN_CHARS = (",", "\r", "\n")
 _PTYPE_PATTERN = re.compile(r"[pg]\d*")
 
 
+class InvalidRuleError(ValueError):
+    """Invalid policy rule, with the invalid field and a stable code.
+
+    It is a `ValueError`, whose message may quote the rule's values (for
+    logs); `reason` describes the problem without them, for clients.
+
+    Args:
+        message: Description of the problem, which may quote values.
+        code: Stable, kebab-case code of the problem (cf.
+            :py:class:`foca.errors.fields.FieldError`).
+        reason: Description without values; by default, `message`.
+        field: Invalid field: `policy_type`, the index of a value, or `None`
+            for the values as a whole.
+
+    Attributes:
+        code: Stable, kebab-case code of the problem.
+        reason: Description without values.
+        field: Invalid field, or `None` for the values as a whole.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str,
+        reason: str | None = None,
+        field: str | int | None = None,
+    ) -> None:
+        """Create the error."""
+        super().__init__(message)
+        self.code = code
+        self.reason = message if reason is None else reason
+        self.field = field
+
+
 def validate_rule_value(value: object) -> str:
     """Validate a value of a policy rule.
 
@@ -26,20 +61,32 @@ def validate_rule_value(value: object) -> str:
         The value.
 
     Raises:
-        ValueError: The value is not a non-empty string, is longer than
+        InvalidRuleError: The value is not a non-empty string, is longer than
             `MAX_RULE_VALUE_LENGTH`, contains a comma or line break, or
-            starts with `#`.
+            starts with `#` (without `field`).
     """
-    if not isinstance(value, str) or not value:
-        raise ValueError("Rule values must be non-empty strings")
+    if not isinstance(value, str):
+        raise InvalidRuleError(
+            "Rule values must be non-empty strings", code="invalid-type"
+        )
+    if not value:
+        raise InvalidRuleError(
+            "Rule values must be non-empty strings", code="too-short"
+        )
     if len(value) > MAX_RULE_VALUE_LENGTH:
-        raise ValueError(
-            f"Rule values must not be longer than {MAX_RULE_VALUE_LENGTH} characters"
+        raise InvalidRuleError(
+            f"Rule values must not be longer than {MAX_RULE_VALUE_LENGTH} characters",
+            code="too-long",
         )
     if any(char in value for char in _FORBIDDEN_CHARS):
-        raise ValueError("Rule values must not contain commas or line breaks")
+        raise InvalidRuleError(
+            "Rule values must not contain commas or line breaks",
+            code="invalid-character",
+        )
     if value.startswith("#"):
-        raise ValueError("Rule values must not start with '#'")
+        raise InvalidRuleError(
+            "Rule values must not start with '#'", code="invalid-character"
+        )
     return value
 
 
@@ -60,31 +107,66 @@ def validate_rule(
         The values.
 
     Raises:
-        ValueError: The rule is invalid.
+        InvalidRuleError: The rule is invalid; with the invalid field and a
+            code (cf. :py:class:`InvalidRuleError`).
     """
-    if not isinstance(ptype, str) or not _PTYPE_PATTERN.fullmatch(ptype):
-        raise ValueError(f"Invalid policy type: {ptype!r}")
+    if ptype is None:
+        raise InvalidRuleError(
+            "Rules need a policy type", code="required", field="policy_type"
+        )
+    if not isinstance(ptype, str):
+        raise InvalidRuleError(
+            "Policy types must be strings", code="invalid-type", field="policy_type"
+        )
+    if not _PTYPE_PATTERN.fullmatch(ptype):
+        raise InvalidRuleError(
+            f"Invalid policy type: {ptype!r}",
+            code="pattern-mismatch",
+            reason="Policy types must be 'p' or 'g', optionally followed by digits",
+            field="policy_type",
+        )
     if not 0 < len(values) <= MAX_RULE_VALUES:
-        raise ValueError(f"Rules must have between 1 and {MAX_RULE_VALUES} values")
-    for value in values:
-        validate_rule_value(value)
+        raise InvalidRuleError(
+            f"Rules must have between 1 and {MAX_RULE_VALUES} values",
+            code="wrong-value-count",
+        )
+    for index, value in enumerate(values):
+        try:
+            validate_rule_value(value)
+        except InvalidRuleError as exc:
+            exc.field = index
+            raise
     if model is None:
         return values
     assertion = model.model.get(ptype[0], {}).get(ptype)
     if assertion is None:
-        raise ValueError(f"Policy type not defined in model: {ptype!r}")
+        raise InvalidRuleError(
+            f"Policy type not defined in model: {ptype!r}",
+            code="unknown-policy-type",
+            reason="The policy type is not defined in the access control model",
+            field="policy_type",
+        )
     if len(values) != len(assertion.tokens):
-        raise ValueError(
-            f"Rules of policy type {ptype!r} must have {len(assertion.tokens)} values"
+        raise InvalidRuleError(
+            f"Rules of policy type {ptype!r} must have {len(assertion.tokens)} values",
+            code="wrong-value-count",
+            reason=(
+                f"Rules of this policy type must have {len(assertion.tokens)} values"
+            ),
         )
     if ptype[0] == "p":
-        for token, value in zip(assertion.tokens, values, strict=True):
+        for index, (token, value) in enumerate(
+            zip(assertion.tokens, values, strict=True)
+        ):
             if token == f"{ptype}_act":
                 try:
                     re.compile(value)
                 except re.error as exc:
-                    raise ValueError(
-                        f"Invalid action pattern {value!r}: {exc}"
+                    raise InvalidRuleError(
+                        f"Invalid action pattern {value!r}: {exc}",
+                        code="invalid-pattern",
+                        reason="Actions must be valid regular expressions",
+                        field=index,
                     ) from exc
     return values
 

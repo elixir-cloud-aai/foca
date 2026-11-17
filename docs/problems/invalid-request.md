@@ -101,6 +101,34 @@ FOCA's request validation uses these codes:
 | `read-only` | The request sets a read-only property. |
 | `invalid` | Any other constraint. |
 
+### Codes of the permissions API
+
+Requests to FOCA's [permissions API](../access-control.md#rule-values) are
+first checked against its specification, like all requests: fields that the
+schema rejects are reported with the codes above (e.g., `required` at
+`#/rule/v0` for an empty `rule`, or `invalid-type` for a `page` that is not an
+integer). The permissions API then checks rules, identifiers and pages
+itself, which matters for what the schema can't check (e.g., the policy types
+and number of values of the app's model) and for custom `api_specs` with
+looser schemas. These checks stop at the first invalid field, so each
+response names one, with these codes:
+
+| Code | Reported at | Meaning |
+| --- | --- | --- |
+| `invalid-type` | `#`, `#/rule`, `#/policy_type`, `#/rule/vN` | The body or `rule` is not an object, or `policy_type` or a value is not a string. |
+| `required` | `#/rule`, `#/policy_type` | `rule` or `policy_type` is missing. |
+| `pattern-mismatch` | `#/policy_type` | `policy_type` is not `p` or `g`, optionally followed by digits. |
+| `unknown-policy-type` | `#/policy_type` | `policy_type` is not defined in the app's access control model. |
+| `unknown-property` | `#/rule/<key>` | `rule` has a key other than `v0` to `v5`. |
+| `non-consecutive-keys` | `#/rule` | The keys of `rule` are not consecutive, starting from `v0`. |
+| `wrong-value-count` | `#/rule` | `rule` has more or fewer values than its policy type's definition has fields. |
+| `too-short`, `too-long` | `#/rule/vN` | A value is empty or longer than 1024 characters. |
+| `invalid-character` | `#/rule/vN`, parameter `id` | A value has a comma or line break, or starts with `#`; or `id` has characters other than those of `access_control.id_charset`. |
+| `invalid-pattern` | `#/rule/vN` | The action of a policy rule is not a valid regular expression. |
+| `opt-in-role` | `#/rule/v1` | A role rule grants an opt-in role. |
+| `invalid-length` | parameter `id` | `id` doesn't have the length `access_control.id_length`. |
+| `too-small`, `too-large` | parameters `page_size`, `page` | `page_size` is out of range, or `page` is negative or beyond the last page. |
+
 Apps add codes of their own for their own checks (see below), e.g.,
 `scheme-not-allowed`; document them in their API specifications.
 

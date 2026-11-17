@@ -13,11 +13,11 @@ from collections.abc import Callable
 from typing import Any
 
 from exceptions import NotFound
-from flask import Response, make_response, request
 from pymongo import ReturnDocument
 from pymongo.collection import Collection
 
 from foca import get_collection
+from foca.context import current_request
 from foca.security.access_control import (
     add_owner,
     ownership_server,
@@ -49,8 +49,9 @@ def _pets_path() -> str:
     # Full request path of the pets, including the base path of the API, as
     # policies are enforced on full request paths; for `/pets` and
     # `/pets/{id}`
-    path = request.path.rstrip("/")
-    if request.view_args and "id" in request.view_args:
+    req = current_request()
+    path = req.path.rstrip("/")
+    if "id" in req.path_params:
         path = path.rsplit("/", 1)[0]
     return path
 
@@ -138,7 +139,7 @@ def findPetById(id: int) -> dict[str, Any]:
         Pet.
 
     Raises:
-        werkzeug.exceptions.NotFound: The pet does not exist.
+        foca.errors.NotFound: The pet does not exist.
     """
     db_collection = _get_collection()
     record = db_collection.find_one(
@@ -150,7 +151,7 @@ def findPetById(id: int) -> dict[str, Any]:
     return record
 
 
-def deletePet(id: int) -> Response:
+def deletePet(id: int) -> tuple[str, int]:
     """Delete a pet, with all roles granted on it.
 
     Args:
@@ -160,7 +161,7 @@ def deletePet(id: int) -> Response:
         Empty response with status 204.
 
     Raises:
-        werkzeug.exceptions.NotFound: The pet does not exist.
+        foca.errors.NotFound: The pet does not exist.
     """
     db_collection = _get_collection()
     if db_collection.find_one({"id": id}) is None:
@@ -172,8 +173,7 @@ def deletePet(id: int) -> Response:
     remove_resource(_pet_path(id))
     db_collection.delete_one({"id": id})
     remove_resource(_pet_path(id))
-    response = make_response("", 204)
-    return response
+    return "", 204
 
 
 def _pet_exists(id: int) -> Callable[[], bool]:
