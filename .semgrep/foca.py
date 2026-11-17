@@ -47,6 +47,22 @@ jwt.decode(TOKEN, options=unverified)
 unverified_dict = dict(verify_signature=False)  # noqa: C408
 # ruleid: jwt-decode-without-verification
 jwt.decode(TOKEN, options=unverified_dict)
+# ruleid: jwt-decode-without-verification
+jwt.decode(TOKEN, options={"verify_signature": None})
+# ruleid: jwt-decode-without-verification
+jwt.decode(TOKEN, options=dict(verify_signature=None))  # noqa: C408
+# ruleid: jwt-decode-without-verification
+jwt.decode(TOKEN, options={"verify_signature": ""})
+# ruleid: jwt-decode-without-verification
+jwt.decode(TOKEN, verify=None)
+none_options = {"verify_signature": None}
+# ruleid: jwt-decode-without-verification
+jwt.decode(TOKEN, options=none_options)
+none_dict = dict(verify_signature=None)  # noqa: C408
+# ruleid: jwt-decode-without-verification
+jwt.decode(TOKEN, options=none_dict)
+# ok: jwt-decode-without-verification
+jwt.decode(TOKEN, KEY, algorithms=["RS256"], options={"verify_signature": True})
 # ok: jwt-decode-without-verification
 jwt.decode(TOKEN, KEY, algorithms=["RS256"], options={"verify_aud": False})
 # ok: jwt-decode-without-verification
@@ -72,6 +88,25 @@ jwt.decode(TOKEN, KEY, algorithms=header.get("alg"))
 imported_header = get_unverified_header(TOKEN)
 # ruleid: jwt-decode-unsafe-algorithms
 pyjwt.decode(TOKEN, KEY, algorithms=[imported_header["alg"]])
+alg = header["alg"]
+# ruleid: jwt-decode-unsafe-algorithms
+jwt.decode(TOKEN, KEY, algorithms=[alg])
+alg_get = jwt.get_unverified_header(TOKEN).get("alg", "RS256")
+# ruleid: jwt-decode-unsafe-algorithms
+jwt.decode_complete(TOKEN, KEY, algorithms=[alg_get])
+header_algorithms = [header["alg"]]
+# ruleid: jwt-decode-unsafe-algorithms
+jwt.decode(TOKEN, KEY, algorithms=header_algorithms)
+none_algorithms = ["RS256", "NONE"]
+# ruleid: jwt-decode-unsafe-algorithms
+jwt.decode(TOKEN, KEY, algorithms=none_algorithms)
+# ruleid: jwt-decode-unsafe-algorithms
+jwt.decode(TOKEN, KEY, algorithms={"none"})
+kid = header["kid"]
+# ok: jwt-decode-unsafe-algorithms
+jwt.decode(TOKEN, {"key": KEY}[kid], algorithms=["RS256"])
+# ok: jwt-decode-unsafe-algorithms
+jwt.decode(TOKEN, KEY, algorithms=["none-of-these"])
 # ok: jwt-decode-unsafe-algorithms
 jwt.decode(TOKEN, KEY, algorithms=["RS256", "ES256"])
 
@@ -113,5 +148,20 @@ session.verify = False
 session.verify = 0
 # ruleid: tls-verification-disabled
 requests.get("https://example.org", verify=0, timeout=10)
+# ruleid: tls-verification-disabled
+session.get("https://example.org", verify=False, timeout=10)
+# ruleid: tls-verification-disabled
+session.request("GET", "https://example.org", verify=0, timeout=10)
+request = session.prepare_request(requests.Request("GET", "https://example.org"))
+# ruleid: tls-verification-disabled
+session.send(request, verify=False, timeout=10)
+# ruleid: tls-verification-disabled
+requests.Session().post("https://example.org", verify=False, timeout=10)
+# ruleid: tls-verification-disabled
+requests.get("https://example.org", verify=False, timeout=10)  # noqa: S501
 # ok: tls-verification-disabled
 session.verify = "/etc/ssl/certs/ca-certificates.crt"
+# ok: tls-verification-disabled
+session.get("https://example.org", verify=True, timeout=10)
+# ok: tls-verification-disabled
+session.get("https://example.org", verify="/etc/ssl/certs/ca.pem", timeout=10)
