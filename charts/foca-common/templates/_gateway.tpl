@@ -21,6 +21,7 @@ The keys of the settings of FOCA's plugins (`foca.plugins.config`) in the values
   "ifMissingPhase" "if_missing_phase"
   "keySecret" "key_secret"
   "maxAlternatives" "max_alternatives"
+  "maxCount" "max_count"
   "maxEntrySize" "max_entry_size"
   "maxItems" "max_items"
   "maxNamespaceSize" "max_namespace_size"

@@ -4,6 +4,10 @@ valid:
   - return body, 201, headers
   - return "201", 201
   - 'return body, 201, {"X-Code": "201"}'
+  - return (None, 201, headers)
 invalid:
   - return body, "201"
   - return body, '201', headers
+  - return (body, "201")
+  - return (None, "201", headers)
+  - return body, f"201"

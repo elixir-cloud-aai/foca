@@ -10,7 +10,9 @@ rule:
   any:
     - pattern: return $BODY, $CODE
     - pattern: return $BODY, $CODE, $HEADERS
+    - pattern: return ($BODY, $CODE)
+    - pattern: return ($BODY, $CODE, $HEADERS)
 constraints:
   CODE:
     kind: string
-    regex: ^["']\d{3}["']$
+    regex: ^[a-zA-Z]*["']\d{3}["']$

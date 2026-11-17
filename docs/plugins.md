@@ -141,9 +141,10 @@ pipeline: JSON cannot be parsed`, unless
 [`exceptions.validation_reasons`](configuration/exceptions.md#request-specific-details)
 is on. Messages of a plugin's own checks of
 its params (`InvalidParams`) are passed on as they are: plugins should name
-params and settings in them, not values. Apps of other APIs than
-TES pass the request's tags explicitly (`host.start(..., tags=...)`, e.g.,
-the parsed `tags` form field of WES). Presets and client pipelines are
+params and settings in them, not values. The tags are those of the
+payload: of the TES task, or of the WES run (cf. [WES
+requests](#wes-requests)); apps of other APIs pass them explicitly
+(`host.start(..., tags=...)`). Presets and client pipelines are
 framed by the admin's steps (`client_pipelines.prepend` and `append`),
 which clients can neither remove nor reorder; appended steps with
 `if_missing_phase` (e.g., a default `route` step) are added only if no other
@@ -306,6 +307,118 @@ need no entry in `plugins.available`; an entry sets only `enabled`,
 `enabled: false`, a default pipeline that still lists the router stops the
 app at startup. Other route plugins (e.g., distance routing) replace it in
 `pipeline` or presets.
+
+## WES requests
+
+WES clients submit runs (`POST /runs`) as `multipart/form-data`, with the
+workflow's files as `workflow_attachment` parts. Plugins of WES gateways
+get every run in the same shape, defined in `foca.plugins.wes`, so that
+`wes` plugins (e.g., ones that fetch workflows from TRS or Git) work with
+every gateway: the payload of the inbound request is a `dict` of the form
+fields, with
+
+| Field | Value |
+|---|---|
+| `workflow_url`, `workflow_type`, `workflow_type_version`, `workflow_engine`, `workflow_engine_version` | strings (other fields too) |
+| `workflow_params`, `tags`, `workflow_engine_parameters` | parsed from JSON: `dict`s |
+| `workflow_attachment` | the files: a `list` of `foca.plugins.Attachment`, empty if there are none |
+
+Fields that the client did not send are absent, except
+`workflow_attachment`. An `Attachment(filename, content, media_type)` is an
+immutable value with the file's relative path, its content as `bytes` and
+its media type (default `application/octet-stream`); `size` and `digest`
+(`sha256:...`) are derived from the content. Plugins read the files, and add,
+replace or remove them in the list, e.g., to run a workflow from a TRS:
+
+```python
+from foca.plugins import Attachment, Context, InboundRequest, NotApplicable
+
+
+def on_request(self, request: InboundRequest, ctx: Context) -> None:
+    run = request.payload
+    if not run["workflow_url"].startswith("trs://"):
+        raise NotApplicable("no TRS URI")
+    files = self.fetch(run["workflow_url"], run["workflow_type"], ctx)
+    run["workflow_attachment"].extend(
+        Attachment(path, content, "text/plain") for path, content in files
+    )
+    run["workflow_url"] = files[0][0]  # the primary descriptor, attached
+```
+
+After each `request` and `forward` hook of a WES gateway that got a run,
+the engine checks the run, as it re-validates payloads (and again after
+the app's `sanitize`): output whose fields have the wrong types (text
+fields must be strings, and JSON fields `dict`s of JSON values: `dict`s
+with string keys, `list`s, strings, finite numbers, booleans and `None`,
+nested at most 64 levels; no tuples, sets or `NaN`; strings valid UTF-8),
+whose attachments are no `list` of `Attachment`s (or missing), or that has an
+unsafe filename, a filename twice (or as a directory of another file, or
+inside another file; compared after NFKC normalization and ignoring case,
+as servers may do), an invalid media type, or more files or bytes than
+[`plugins.attachments`](configuration/plugins.md#attachments) allows,
+counts as invalid (`invalid_output`), and the next alternative is tried.
+Safe filenames are relative paths below the run's directory, with `/` as
+separator: not empty, not absolute (no leading `/`, no drive such as `C:`),
+without backslashes, without empty, `.` or `..` segments or segments
+ending in a dot or space (which Windows drops), without control
+or format characters (e.g., NUL, line breaks and line separators,
+bidirectional overrides), valid UTF-8 of at most 1024 bytes, with segments
+of at most 255 bytes; their NFKC normalization must be safe too, also in
+size (so that, e.g., fullwidth dots cannot become `..`). Plugins that add
+files from elsewhere keep limits of their own (at most those of the
+gateway), and reject runs that exceed them, e.g., with `Rejected(..., 413)`,
+so that clients learn why.
+
+Apps build the payload from the multipart request, check it before the
+plugins run, and turn it back into a multipart request when forwarding it;
+the helpers of `foca.plugins.wes` are framework-neutral:
+
+```python
+from dataclasses import replace
+
+from foca.plugins import Attachment
+from foca.plugins.wes import (
+    InvalidRunRequest,
+    check_run_request,
+    parse_run_request,
+    run_request_form,
+)
+
+host = get_host()  # the app's plugin host
+try:
+    run = parse_run_request(
+        # limit the request body in the web server first (see below)
+        form,  # the text fields, e.g., {"workflow_url": "main.cwl", "tags": "{}"}
+        [  # the uploaded files; filenames are checked below
+            Attachment(f.filename or "", f.read(), f.mimetype or "text/plain")
+            for f in files
+        ],
+    )
+    check_run_request(run, host.conf.attachments)
+except InvalidRunRequest as exc:
+    ...  # answer with exc.status (400, or 413 for too many or large files)
+# inbound: the InboundRequest built from the HTTP request
+pipeline_run = host.start(replace(inbound, payload=run), principal)
+...
+fields, files = run_request_form(attempt.outbound.payload)  # to forward
+```
+
+- `parse_run_request(fields, attachments)` parses the JSON fields and adds
+  the files as a new list; `check_run_request(run, limits)` checks the run
+  as the engine does after each plugin; errors are `InvalidRunRequest`s
+  (`status` 400) or `AttachmentsTooLarge` (413), whose messages name
+  fields and positions, never values.
+- `run_request_form(run)` returns the text fields (JSON fields as compact
+  JSON) and the files, and checks the fields and attachments again,
+  except the limits.
+- The engine reads the client's pipeline and backends from the run's
+  `tags` (`host.start()` needs no `tags=`), and refuses `request` hook
+  output that changes reserved tags, as for TES tasks.
+- Limit the size of request bodies in the web server as well (e.g., Flask's
+  `MAX_CONTENT_LENGTH`), so that larger uploads are refused before they are
+  parsed.
+- Provenance records describe attachments by filename, media type, size and
+  digest, never their content.
 
 ## Writing plugins
 
@@ -526,8 +639,12 @@ def test_contract():
   cached value, or check a counter). Pass `store_backend=` (cf.
   `foca.plugins.store`) to use another backend.
 - Builders give valid inputs: `make_principal()` (with `subject_type`
-  and `acting_for` for service clients), `make_inbound()`,
-  `make_backend()`, `make_outbound()` and `make_response()`.
+  and `acting_for` for service clients), `make_inbound()` (a TES task, or
+  with `api="wes"` a WES run), `make_run_request()` (the payload of a WES
+  run, by default with the attached workflow `main.cwl`; pass
+  `attachments=[...]` for others, or `[]` for none), `make_backend()`,
+  `make_outbound()` and `make_response()`. Harnesses and contract checks
+  with `api="wes"` use WES runs as their default inputs.
 - `ctx.http` is a `FakeHttp`: add responses (`http.add("GET", url,
   json=...)`, or `error=` one of `foca.utils.http`'s errors), pass it as
   `http=`, and check `http.calls`; requests without a response fail, and
@@ -682,8 +799,9 @@ ownership helpers:
 - `subject` and `subject_type`: the client ID of a service client
   (`client`), or else the user's subject (`user`), as stored with
   resources: user subjects (also in `acting_for`) are namespaced by their
-  issuer if it has a namespace (`<namespace>|<subject>`, e.g., with
-  several trusted issuers; cf. [access control](access-control.md)); key
+  issuer (`<namespace>|<subject>`, by default with the issuer as namespace,
+  unless the issuer keeps its subjects bare; cf. [several trusted
+  issuers](authentication.md#several-trusted-issuers)); key
   quotas or records on both fields, as a client and a user may have the
   same identifier;
 - `acting_for`: the user that a service client acts for (header
@@ -695,7 +813,7 @@ ownership helpers:
   (`foca.security.access_control.get_current_roles()`): the role mapped
   from the service client (`access_control.client_mapping`) and from group
   claims, and roles granted via global role rules (`g`, e.g.,
-  `g, user:alice, admin`), also transitively; none for unidentified
+  `g, user:<namespace>|alice, admin`), also transitively; none for unidentified
   callers. So `roles` in the plugin configuration are access control
   roles.
 
@@ -860,8 +978,9 @@ changes or removes a key under the prefix (also the client's own
 `gateway.pipeline` and `gateway.backends`) give `invalid_output`, so
 plugins cannot forge them, and `without_server_tags()` drops all keys but
 the client's before the merge, as a second line of defence. This applies
-to payloads with a `tags` map (TES); apps of other APIs (e.g., WES, whose
-tags are a form field) apply `without_server_tags()` themselves.
+to payloads with a `tags` map (TES tasks, and WES runs as plugins see them,
+cf. [WES requests](#wes-requests)); apps of other APIs apply
+`without_server_tags()` themselves.
 
 Clients may set only `gateway.pipeline` and `gateway.backends`; requests
 with other keys under the prefix are refused (`400`). Clients that submit
