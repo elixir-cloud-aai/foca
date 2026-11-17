@@ -147,7 +147,8 @@ def check_filename(filename: object) -> str:
         InvalidRunRequest: The filename is unsafe; the message does not
             contain it.
     """
-    if not isinstance(filename, str):
+    # exact type: subclasses could override the methods used below
+    if type(filename) is not str:
         raise InvalidRunRequest("filename is no string")
     if not filename:
         raise InvalidRunRequest("filename is empty")
@@ -164,6 +165,10 @@ def check_filename(filename: object) -> str:
     normalized = unicodedata.normalize("NFKC", filename)
     _check_path(filename)
     _check_path(normalized)
+    if len(normalized.encode("utf-8")) > MAX_FILENAME_SIZE:
+        raise InvalidRunRequest(
+            f"filename is longer than {MAX_FILENAME_SIZE} bytes (UTF-8) after NFKC"
+        )
     segments = filename.split("/") + normalized.split("/")
     if any(len(part.encode("utf-8")) > MAX_SEGMENT_SIZE for part in segments):
         raise InvalidRunRequest(
@@ -301,17 +306,17 @@ def _check_fields(payload: object) -> Mapping[Any, Any]:
             value of the wrong type.
     """
     if not isinstance(payload, Mapping):
-        raise InvalidRunRequest("WES run requests are maps of form fields")
+        raise InvalidRunRequest("payload: no map of form fields")
     for name, value in payload.items():
-        if not isinstance(name, str):
-            raise InvalidRunRequest("Form field names are strings")
+        if type(name) is not str:
+            raise InvalidRunRequest("field name: no string")
         if name == ATTACHMENT_FIELD or value is None:
             continue
         if name in JSON_FIELDS:
             if not isinstance(value, dict):
                 raise InvalidRunRequest(f"{name}: no JSON object")
             _to_json(name, value)
-        elif not isinstance(value, str):
+        elif type(value) is not str:
             raise InvalidRunRequest(f"{name}: no string")
     return payload
 

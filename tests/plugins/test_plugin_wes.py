@@ -78,6 +78,22 @@ class UnsafePlugin(AttachPlugin):
     filename = "../main.cwl"
 
 
+class Name(str):
+    """String that claims to be a safe path."""
+
+    def split(self, *args: Any, **kwargs: Any) -> list[str]:
+        """Claim to have one safe segment.
+
+        Args:
+            args: Ignored.
+            kwargs: Ignored.
+
+        Returns:
+            One safe segment.
+        """
+        return ["ok"]
+
+
 class ShortBytes(bytes):
     """Bytes that claim to be empty."""
 
@@ -157,6 +173,8 @@ def test_attachment() -> None:
     with pytest.raises(TypeError, match="bytes"):
         Attachment("a", ShortBytes(b"xyz"))
     with pytest.raises(TypeError, match="filenames"):
+        Attachment(Name("../x"), b"")
+    with pytest.raises(TypeError, match="filenames"):
         Attachment(1, b"")  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="media types"):
         Attachment("a", b"", None)  # type: ignore[arg-type]
@@ -198,7 +216,9 @@ def test_safe_filenames(filename: str) -> None:
         ("a/" * 600 + "b", "1024"),
         ("\uff0e\uff0e/x", r"'\.' or '\.\.'"),  # fullwidth dots: NFKC `..`
         ("\uff0fetc", "absolute"),  # fullwidth solidus: NFKC `/`
-        ("\ufdfa" * 80, "255"),  # 240 bytes, but over 255 after NFKC
+        ("\ufdfa" * 9, "255"),  # 27 bytes, but over 255 after NFKC
+        ("/".join(["\ufdfa" * 7] * 40), "after NFKC"),  # 879 bytes
+        (Name("/../x"), "string"),  # subclasses could fake checks
         ("a\uff3cb", "backslash"),  # fullwidth reverse solidus
     ],
 )
@@ -309,7 +329,7 @@ def test_check_run_request() -> None:
     check_run_request({"workflow_url": "https://x/y.cwl"}, limits)
     check_run_request({"workflow_url": None, "workflow_attachment": None}, limits)
     cases: list[tuple[Any, str]] = [
-        ([], "map"),
+        ([], "payload: no map"),
         ({"workflow_url": 1}, "workflow_url: no string"),
         ({"tags": "{}"}, "tags: no JSON object"),
         ({"workflow_params": []}, "workflow_params: no JSON object"),
@@ -317,7 +337,8 @@ def test_check_run_request() -> None:
         ({"workflow_params": {"a": {1, 2}}}, "workflow_params: no valid JSON"),
         ({"tags": Headers()}, "tags: no JSON object"),
         ({"workflow_engine_parameters": 1}, "workflow_engine_parameters"),
-        ({1: "a"}, "names"),
+        ({1: "a"}, "field name: no string"),
+        ({"workflow_url": Name("a")}, "workflow_url: no string"),
         ({"other": 1}, "other: no string"),
     ]
     for payload, message in cases:

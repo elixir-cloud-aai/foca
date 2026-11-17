@@ -299,12 +299,12 @@ class Attachment:
             TypeError: The filename or media type is no string, or the
                 content no bytes.
         """
-        if not isinstance(self.filename, str):
+        # exact types: subclasses could override the methods used in checks
+        if type(self.filename) is not str:
             raise TypeError("Attachment filenames are strings")
-        # not subclasses, which could misreport their length
         if type(self.content) is not bytes:
             raise TypeError("Attachment contents are bytes")
-        if not isinstance(self.media_type, str):
+        if type(self.media_type) is not str:
             raise TypeError("Attachment media types are strings")
 
     @property

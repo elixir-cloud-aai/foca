@@ -360,9 +360,10 @@ without backslashes, without empty, `.` or `..` segments, without control
 or format characters (e.g., NUL, line breaks and line separators,
 bidirectional overrides), valid UTF-8 of at most 1024 bytes, with segments
 of at most 255 bytes; their NFKC normalization must be safe too, also in
-size (so that, e.g., fullwidth dots cannot become `..`). Plugins that add files from elsewhere keep limits of their own
-(at most those of the gateway), and reject runs that exceed them, e.g., with
-`Rejected(..., 413)`, so that clients learn why.
+size (so that, e.g., fullwidth dots cannot become `..`). Plugins that add
+files from elsewhere keep limits of their own (at most those of the
+gateway), and reject runs that exceed them, e.g., with `Rejected(..., 413)`,
+so that clients learn why.
 
 Apps build the payload from the multipart request, check it before the
 plugins run, and turn it back into a multipart request when forwarding it;
@@ -391,6 +392,7 @@ try:
     check_run_request(run, host.conf.attachments)
 except InvalidRunRequest as exc:
     ...  # answer with exc.status (400, or 413 for too many or large files)
+# inbound: the InboundRequest built from the HTTP request
 pipeline_run = host.start(replace(inbound, payload=run), principal)
 ...
 fields, files = run_request_form(attempt.outbound.payload)  # to forward
@@ -402,7 +404,8 @@ fields, files = run_request_form(attempt.outbound.payload)  # to forward
   (`status` 400) or `AttachmentsTooLarge` (413), whose messages name
   fields and positions, never values.
 - `run_request_form(run)` returns the text fields (JSON fields as compact
-  JSON) and the files, and checks the fields and filenames again.
+  JSON) and the files, and checks the fields and attachments again,
+  except the limits.
 - The engine reads the client's pipeline and backends from the run's
   `tags` (`host.start()` needs no `tags=`), and refuses `request` hook
   output that changes reserved tags, as for TES tasks.
