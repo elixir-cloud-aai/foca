@@ -249,7 +249,8 @@ setup below:
   [server](configuration/server.md)), is enforced by FOCA in every setup.
   A limit at the proxy is an extra layer that rejects large requests before
   they reach the app; its configuration depends on the proxy, so the chart
-  sets none (see the examples below; keep it at or above the app's limit).
+  sets none (see the examples below; keep it at or above the app's limit,
+  which the chart checks for ingress-nginx's annotation).
 - **Rate limiting:** configured at the proxy only, if at all.
 - **Request IDs:** the app generates its own identifiers rather than using the
   `X-Request-ID` of requests, also behind a proxy. To take the proxy's, set
@@ -386,6 +387,16 @@ the Gateway API, or to another ingress controller.
         annotations:
           nginx.ingress.kubernetes.io/proxy-body-size: 8m
     ```
+
+    Rendering fails if the annotation is below the app's limit (from
+    foca-common 0.6.0), as ingress-nginx would answer requests between the
+    two with its own `413` page instead of the app's problem details; the
+    error names the value to set. The annotation takes nginx's sizes: bytes,
+    or with the suffix `k`, `m` or `g` (either case), here with at most 9
+    digits and no leading zeros; `0` disables the limit. Without the
+    annotation, or if the app sets no limit, nothing is checked. App charts
+    whose limit exceeds 1 MiB may set the annotation as a default in their
+    `values.yaml`, as the library chart sets none.
 
     Before foca-common 0.2.0, the chart set this annotation to the app's
     limit itself.

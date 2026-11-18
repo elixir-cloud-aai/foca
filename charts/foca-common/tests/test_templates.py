@@ -1378,6 +1378,127 @@ def test_ingress_body_size_opt_in(render: Callable[..., Docs]) -> None:
     assert ingress["metadata"]["annotations"] == {BODY_SIZE: "1m"}
 
 
+def _body_size(value: str | None, *args: str) -> tuple[str, ...]:
+    """Set ingress-nginx's size limit of request bodies of the Ingress.
+
+    Args:
+        value: Value of the annotation; `None` removes it.
+        args: Further arguments of `helm template`, e.g., the app's limit.
+
+    Returns:
+        Arguments of `helm template`.
+    """
+    annotations = json.dumps({BODY_SIZE: value})
+    return ("--set-json", f"petstore.ingress.annotations={annotations}", *args)
+
+
+# The app's size limit of request bodies: 10 MiB (the petstore example sets
+# none by default, so the check needs one)
+LIMIT_10_MIB = ("--set", "config.server.max_content_length=10485760")
+HTTPS = ("--set", "petstore.ingress.https.enabled=true")
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        _body_size("0", *LIMIT_10_MIB),
+        _body_size("10485760", *LIMIT_10_MIB),
+        _body_size("10240k", *LIMIT_10_MIB),
+        _body_size("10m", *LIMIT_10_MIB),
+        _body_size("10M", *LIMIT_10_MIB),
+        _body_size("1G", *LIMIT_10_MIB),
+        _body_size("999999999g", *LIMIT_10_MIB),
+        _body_size("1g", "--set", "config.server.max_content_length=1073741824"),
+        _body_size("1m", "--set", "config.server.max_content_length=1048576"),
+        # Without an app limit, any size of ingress-nginx renders
+        _body_size("1"),
+        # Without the annotation, the chart can't know the controller's limit
+        LIMIT_10_MIB,
+        _body_size(None, *LIMIT_10_MIB),
+        (*LIMIT_10_MIB, "--set-json", "petstore.ingress.annotations=null"),
+        # The check applies to the Ingress only
+        _body_size("1k", *LIMIT_10_MIB, *NO_INGRESS),
+        _body_size("10 MB", *NO_INGRESS),
+    ],
+)
+def test_ingress_body_size_allowed(
+    render: Callable[..., Docs], args: tuple[str, ...]
+) -> None:
+    """Limits of ingress-nginx at or above the app's limit, or none, render.
+
+    Args:
+        render: Renders the chart.
+        args: Arguments setting the limits.
+    """
+    render(*args)
+
+
+@pytest.mark.parametrize(
+    ("args", "message"),
+    [
+        (
+            _body_size("1m", *LIMIT_10_MIB),
+            f"petstore.ingress.annotations: {BODY_SIZE} (1m) must allow at least"
+            " the app's config.server.max_content_length (10485760 bytes)",
+        ),
+        (_body_size("1m", *LIMIT_10_MIB), "set it to 10m or more"),
+        (_body_size("10485759", *LIMIT_10_MIB), "(10485759) must allow at least"),
+        (_body_size("10239K", *LIMIT_10_MIB), "(10239K) must allow at least"),
+        (
+            _body_size("10m", "--set", "config.server.max_content_length=10485761"),
+            "set it to 11m or more",
+        ),
+        (
+            _body_size("1g", "--set", "config.server.max_content_length=1073741825"),
+            "set it to 1025m or more",
+        ),
+        # Also with the annotations requesting a certificate
+        (_body_size("1m", *LIMIT_10_MIB, *HTTPS), "set it to 10m or more"),
+    ],
+)
+def test_ingress_body_size_too_small(
+    render_error: Callable[..., str], args: tuple[str, ...], message: str
+) -> None:
+    """A limit of ingress-nginx below the app's limit fails to render.
+
+    Requests between the two limits would get ingress-nginx's own `413` page
+    instead of the app's problem details.
+
+    Args:
+        render_error: Renders the chart, expecting it to fail.
+        args: Arguments setting the limits.
+        message: Expected part of the error.
+    """
+    assert message in render_error(*args)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "10 MB",
+        "1.5m",
+        "1000000000",
+        "",
+        "-1",
+        "1t",
+        # nginx reads 010m as 10m, Sprig as octal: refused, not misread
+        "010m",
+        "09m",
+    ],
+)
+def test_ingress_body_size_invalid(
+    render_error: Callable[..., str], value: str
+) -> None:
+    """A size that is not one of ingress-nginx fails, also without an app limit.
+
+    Args:
+        render_error: Renders the chart, expecting it to fail.
+        value: Value of the annotation.
+    """
+    error = render_error(*_body_size(value))
+    assert f"petstore.ingress.annotations: {BODY_SIZE} must be a size" in error
+
+
 @pytest.mark.parametrize("value", ["0", "1.5", '"1m"'])
 def test_max_content_length_invalid(chart: Path, value: str, tmp_path: Path) -> None:
     """Invalid maximum content lengths fail, also without an Ingress."""

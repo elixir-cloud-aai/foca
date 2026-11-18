@@ -3,7 +3,9 @@ Ingress for `hostName`, if `<valuesKey>.ingress.enabled`, for any ingress
 controller: the chart sets no controller-specific annotations (e.g., for
 body sizes or rate limits), which `ingress.annotations` add. These take
 precedence over the annotations requesting a certificate from cert-manager
-(`ingress.https`); `null` removes them. Call with the context dict.
+(`ingress.https`); `null` removes them. Fails if ingress-nginx's size limit
+of request bodies is below the app's (see `foca-common.checkProxyBodySize`).
+Call with the context dict.
 */}}
 {{- define "foca-common.ingress" -}}
 {{- include "foca-common.checkSettings" . -}}
@@ -24,7 +26,8 @@ precedence over the annotations requesting a certificate from cert-manager
 {{- else -}}
 {{- $_ := set $annotations $name $value -}}
 {{- end -}}
-{{- end }}
+{{- end -}}
+{{- include "foca-common.checkProxyBodySize" (dict "root" $root "settings" .settings "annotations" $annotations) }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -57,4 +60,39 @@ spec:
     secretName: {{ printf "%s-ingress-secret" (include "foca-common.fullname" $root) | quote }}
 {{- end }}
 {{ end -}}
+{{- end -}}
+
+{{/*
+Fails if ingress-nginx's size limit of request bodies, the annotation
+`nginx.ingress.kubernetes.io/proxy-body-size` of the Ingress (in
+`annotations`: `<valuesKey>.ingress.annotations` merged with the chart's),
+is below the app's limit (`config.server.max_content_length`, see
+`foca-common.maxContentLength`): ingress-nginx would reject the bodies in
+between with its own `413` page instead of the app's problem details. Sizes
+are those of nginx: bytes, or with the suffix `k`, `m` or `g` (either case),
+here with at most 9 digits and no leading zeros (so that they are parsed as
+decimals and do not overflow); `0` disables the limit. Checked only if the
+Ingress has the annotation, so the chart stays neutral to ingress
+controllers and sets no default: other controllers ignore the annotation,
+and without it, the chart can't know the controller's limit (app charts
+whose limit exceeds ingress-nginx's default, 1 MiB, set the annotation in
+their values). Call with the context dict plus `annotations`; renders
+nothing.
+*/}}
+{{- define "foca-common.checkProxyBodySize" -}}
+{{- $key := .settings.valuesKey -}}
+{{- $name := "nginx.ingress.kubernetes.io/proxy-body-size" -}}
+{{- if hasKey .annotations $name -}}
+{{- $size := toString (index .annotations $name) -}}
+{{- if not (regexMatch "^(0|[1-9][0-9]{0,8})[kKmMgG]?$" $size) -}}
+{{- fail (printf "%s.ingress.annotations: %s must be a size of ingress-nginx (at most 9 digits without leading zeros, bytes or with the suffix k, m or g, e.g., 10m; \"0\" for no limit), not %q" $key $name $size) -}}
+{{- end -}}
+{{- $number := regexFind "^[0-9]+" $size -}}
+{{- $factor := get (dict "" 1 "k" 1024 "m" 1048576 "g" 1073741824) (lower (trimPrefix $number $size)) -}}
+{{- $bytes := mul (int64 $number) $factor -}}
+{{- $limit := include "foca-common.maxContentLength" . -}}
+{{- if and $limit (ne $bytes 0) (lt $bytes (int64 $limit)) -}}
+{{- fail (printf "%s.ingress.annotations: %s (%s) must allow at least the app's config.server.max_content_length (%s bytes), or ingress-nginx rejects larger request bodies with its own 413 page: set it to %dm or more (\"0\" for no limit)" $key $name $size $limit (div (add (int64 $limit) 1048575) 1048576)) -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
