@@ -343,6 +343,7 @@ def test_ca_bundle_only(
     assert info.value.reason == "tls_error"
 
 
+@pytest.mark.usefixtures("trusted")  # so that falling back to it would pass
 def test_ca_bundle_missing(
     serve: Callable[[Behaviour], str],
     certificate: tuple[Path, Path],
@@ -359,6 +360,7 @@ def test_ca_bundle_missing(
     assert "missing.pem" in str(info.value)
 
 
+@pytest.mark.usefixtures("trusted")  # so that falling back to it would pass
 def test_ca_bundle_invalid(
     serve: Callable[[Behaviour], str],
     certificate: tuple[Path, Path],
