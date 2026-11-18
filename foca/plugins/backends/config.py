@@ -140,13 +140,17 @@ class ServiceEntry(_Model):
     @field_validator("api_path")
     @classmethod
     def _check_api_path(cls, value: str | None) -> str | None:
-        """Check the API path, and remove trailing slashes.
+        """Check the API path.
+
+        Leaves the path as given, so that validators of subclasses that
+        redefine the field (e.g., proTES's) get it as given too; trailing
+        slashes are removed when the entry is validated (cf. `_check`).
 
         Args:
             value: API path, as given.
 
         Returns:
-            The API path.
+            The API path, unchanged.
 
         Raises:
             ValueError: The path is neither empty nor absolute, has
@@ -165,7 +169,7 @@ class ServiceEntry(_Model):
                 "API path must have unreserved characters only, and no empty"
                 " segments or segments `.` or `..`"
             )
-        return path
+        return value
 
     @model_validator(mode="after")
     def _check(self) -> Self:
@@ -184,10 +188,11 @@ class ServiceEntry(_Model):
         if not self.id:
             self.id = self.url
         if self.api_path is None:
-            self.api_path = next(
-                (t.path for t in API_TYPES.values() if t.entry_type == self.type),
-                "",
-            )
+            paths = {t.entry_type: t.path for t in API_TYPES.values()}
+            if self.type not in paths:
+                raise ValueError(f"No API type for backend type {self.type!r}")
+            self.api_path = paths[self.type]
+        self.api_path = self.api_path.removesuffix("/")
         if (self.auth == "basic") != (self.basic is not None):
             raise ValueError(
                 f"Backend {self.id!r}: `basic` is needed with, and only with,"

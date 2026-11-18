@@ -6,10 +6,10 @@ import threading
 import time
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
+from typing import Any, Literal
 
 import pytest
-from pydantic import ValidationError
+from pydantic import ValidationError, field_validator
 
 from foca.plugins import Backend, backends
 from foca.plugins.backends import (
@@ -244,12 +244,76 @@ def test_api_path_of_subclasses() -> None:
         api_path: str = "/custom/"
 
     assert AppEntry(type="ga4gh-tes", url="https://a.example.org").api_path == (
-        "/custom/"
+        "/custom"
     )
     entry = AppEntry(type="ga4gh-tes", url="https://a.example.org", api_path="/x/")
     assert entry.api_path == "/x"
     with pytest.raises(ValidationError, match="API path"):
         AppEntry(type="ga4gh-tes", url="https://a.example.org", api_path="x")
+
+
+def test_api_path_without_api_type() -> None:
+    """Entries of types without an API type need an API path of their own."""
+
+    class AppEntry(ServiceEntry):
+        """Entry of a type without an API type."""
+
+        type: Literal["ga4gh-drs"]  # type: ignore[assignment]
+
+    with pytest.raises(ValidationError, match="No API type for backend type"):
+        AppEntry(type="ga4gh-drs", url="https://a.example.org")
+    entry = AppEntry(type="ga4gh-drs", url="https://a.example.org", api_path="/")
+    assert entry.api_path == ""
+
+
+def test_api_path_of_candidates() -> None:
+    """Apps get the API path of configured backends from their entries."""
+    backend_list = BackendList(
+        [
+            {
+                "type": "ga4gh-wes",
+                "url": "https://wes.example.org",
+                "api_path": "/api/wes/v1/",
+            }
+        ],
+        api="wes",
+    )
+    entry = backend_list.entry_for(backend_list.expand()[0])
+    assert isinstance(entry, ServiceEntry)
+    assert entry.api_path == "/api/wes/v1"
+
+
+def test_api_path_with_validators_of_subclasses() -> None:
+    """Validators of apps' own API path fields get the path as given."""
+    seen: list[str] = []
+
+    class AppEntry(ServiceEntry):
+        """Entry with an API path validator of the app's (as in proTES)."""
+
+        api_path: str = "/ga4gh/tes/v1"
+
+        @field_validator("api_path")
+        @classmethod
+        def check_api_path(cls, value: str) -> str:
+            """Refuse relative paths, and remove trailing slashes.
+
+            Args:
+                value: API path.
+
+            Returns:
+                The API path.
+
+            Raises:
+                ValueError: The path is not absolute.
+            """
+            seen.append(value)
+            if not value.startswith("/"):
+                raise ValueError("API path must be absolute")
+            return value.removesuffix("/")
+
+    entry = AppEntry(type="ga4gh-tes", url="https://a.example.org", api_path="/")
+    assert entry.api_path == ""
+    assert seen == ["/"]
 
 
 def test_expand(registry: Registry) -> None:
