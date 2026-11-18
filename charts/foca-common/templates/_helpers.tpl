@@ -541,7 +541,8 @@ ConfigMap template, which every app chart renders.
 
 {{/*
 Fails if a probe of the worker (`worker.startupProbe`, `worker.readinessProbe`,
-`worker.livenessProbe`) isn't a map, or has more than one handler, or none
+`worker.livenessProbe`) or one of its handlers isn't a map, or a probe has
+more than one handler (set and not null), or none
 (e.g., only `exec: null`), which Kubernetes refuses; an empty map or `null`
 is no probe. Checked also if the worker is disabled, so that its values stay
 valid. App charts may set default probes, e.g., an `exec` probe that runs
@@ -560,7 +561,11 @@ to `null`. Call with the root context; renders nothing.
 {{- if $spec -}}
 {{- $handlers := list -}}
 {{- range $handler := list "exec" "httpGet" "tcpSocket" "grpc" -}}
-{{- if get $spec $handler -}}
+{{- $set := index $spec $handler -}}
+{{- if not (kindIs "invalid" $set) -}}
+{{- if not (kindIs "map" $set) -}}
+{{- fail (printf "worker.%s.%s must be a map (a Kubernetes probe handler), or null for none" $probe $handler) -}}
+{{- end -}}
 {{- $handlers = append $handlers $handler -}}
 {{- end -}}
 {{- end -}}

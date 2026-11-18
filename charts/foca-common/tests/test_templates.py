@@ -2386,6 +2386,23 @@ def test_worker_probe_no_handler(chart: Path, tmp_path: Path, probe: str) -> Non
     assert f"set worker.{probe} to null for no probe" in error
 
 
+def test_worker_probe_empty_handler_counts(chart: Path, tmp_path: Path) -> None:
+    """An empty handler merged into an app's default probe is a second one."""
+    chart_copy = _chart_with_worker_probe(chart, tmp_path, "startupProbe")
+    error = template_error(
+        chart_copy, *CELERY, "--set-json", 'worker.startupProbe={"httpGet": {}}'
+    )
+    assert "worker.startupProbe has more than one handler (exec, httpGet)" in error
+
+
+def test_worker_probe_handler_must_be_map(render_error: Callable[..., str]) -> None:
+    """A handler that isn't a map fails."""
+    error = render_error(
+        *CELERY, "--set-json", 'worker.livenessProbe={"exec": ["celery"]}'
+    )
+    assert "worker.livenessProbe.exec must be a map" in error
+
+
 def test_worker_probes_checked_if_disabled(
     render_error: Callable[..., str],
 ) -> None:
