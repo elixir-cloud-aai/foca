@@ -477,6 +477,13 @@ def test_fake_http_deadline_while_waiting() -> None:
     assert http.calls == []
 
 
+def test_fake_http_ca_bundle(tmp_path: Path) -> None:
+    """Clients made by a fake client keep its CA bundle."""
+    http = FakeHttp(ca_bundle=tmp_path / "ca.pem")
+    assert http.client().ca_bundle == str(tmp_path / "ca.pem")
+    assert "ca_bundle" not in http.options()  # not a plugin default
+
+
 def test_fake_http_options() -> None:
     """Clients made by a fake client keep its guard settings."""
     http = FakeHttp(allow_http=True, max_response_size=8)

@@ -351,7 +351,8 @@ except RequestMaybeSent as exc:  # may have been received: don't retry
 - Redirects are returned, never followed, with their bodies read within the
   same limits as other responses; proxies and `.netrc` files of the
   environment are ignored; only `https` is allowed (unless
-  `allow_http=True`), and TLS certificates are always verified. Cookies
+  `allow_http=True`), and TLS certificates are always verified (see
+  below for other certificate authorities). Cookies
   are not kept, so requests do not share state. Authentication handlers
   with response hooks (e.g., `HTTPDigestAuth`) are refused, as they read
   bodies without limit.
@@ -376,11 +377,32 @@ except RequestMaybeSent as exc:  # may have been received: don't retry
   embedded IPv4 addresses, so deployments with their own NAT64 prefix
   must block private destinations at the translator.
 
+TLS certificates are verified with the public certificate authorities (of
+`certifi`); `REQUESTS_CA_BUNDLE` and other settings of the environment are
+ignored. For backends with certificates of a private certificate authority
+(e.g., a company CA, or a test setup with its own CA), pass that authority
+as `ca_bundle`, a file (PEM, one or more certificates) or a directory (with
+hashed names, as by `openssl rehash`):
+
+```python
+client = GuardedClient(timeout=10, ca_bundle="/etc/ssl/private-ca.pem")
+```
+
+Certificates are then verified with the certificate authorities of the
+bundle only, not with the public ones; to trust both, put both into one
+file. Verification can't be turned off: `False`, `True`, bytes and empty
+paths are refused (`TypeError`, `ValueError`), and `ca_bundle` can't be
+changed after the client is created. A bundle that doesn't exist, or holds
+no certificate, fails each request before it is sent (`RequestNotSent`,
+`tls_error`).
+
 `check_public_host(url)` resolves a host and checks all its addresses, e.g.,
 before a discovered URL is stored; `fetch_json(url, timeout)` reads a JSON
 document (e.g., of a service registry) with status `200` only. Plugins get a
 client bound to their deadline as `ctx.http` (cf. [Gateway
-plugins](plugins.md#writing-plugins)).
+plugins](plugins.md#writing-plugins)). `fetch_json()`, the registry reads of
+backend lists and `ctx.http` verify with the public certificate authorities
+only, for now.
 
 ## Accessing the newest database document
 
