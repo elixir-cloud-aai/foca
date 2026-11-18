@@ -388,10 +388,10 @@ the Gateway API, or to another ingress controller.
           nginx.ingress.kubernetes.io/proxy-body-size: 8m
     ```
 
-    Rendering fails if the annotation is below the app's limit (from
-    foca-common 0.6.0), as ingress-nginx would answer requests between the
-    two with its own `413` page instead of the app's problem details; the
-    error names the value to set. The annotation takes nginx's sizes: bytes,
+    Rendering fails if the annotation is below the app's limit, as
+    ingress-nginx would answer requests between the two with its own `413`
+    page instead of the app's problem details; the error names the value to
+    set. The annotation takes nginx's sizes: bytes,
     or with the suffix `k`, `m` or `g` (either case), here with at most 9
     digits and no leading zeros; `0` disables the limit. Without the
     annotation, or if the app sets no limit, nothing is checked. App charts
