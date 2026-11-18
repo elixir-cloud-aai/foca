@@ -468,16 +468,10 @@ class RegistryCache:
         entry = self.entry
         self._last_read = time.monotonic()
         self._next_read = self._last_read + min(entry.refresh_interval, RETRY_INTERVAL)
-        options = {
-            "allow_private_addresses": entry.registry_allow_private_addresses,
-            "allow_http": "http" in entry.url_schemes,
-        }
         try:
-            verified = _verifications(
-                fetch_json(f"{entry.url}/verifications", entry.timeout, **options)
-            )
+            verified = _verifications(self._fetch("verifications"))
             self._drop_unverified(verified)
-            services = fetch_json(f"{entry.url}/services", entry.timeout, **options)
+            services = self._fetch("services")
             selection = _select(
                 services,
                 verified,
@@ -522,6 +516,25 @@ class RegistryCache:
         self._good = (selection.urls, read_at)
         self._read = True
         self._read_good = now
+
+    def _fetch(self, resource: str) -> object:
+        """Read a resource of the registry, with the entry's options.
+
+        Args:
+            resource: Path of the resource, relative to the registry's URL
+                (e.g., `services`).
+
+        Returns:
+            JSON document.
+        """
+        entry = self.entry
+        return fetch_json(
+            f"{entry.url}/{resource}",
+            entry.timeout,
+            allow_private_addresses=entry.registry_allow_private_addresses,
+            allow_http="http" in entry.url_schemes,
+            ca_bundle=entry.registry_ca_bundle,
+        )
 
     def _drop_unverified(self, verified: Mapping[str, tuple[object, object]]) -> None:
         """Stop using cached backends that are no longer verified.

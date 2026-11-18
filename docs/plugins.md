@@ -213,6 +213,7 @@ backends:
     auth: client_credentials       # for discovered backends: or none
     allow_private_addresses: false           # hosts of discovered backends
     registry_allow_private_addresses: false  # the registry's own host
+    registry_ca_bundle: /etc/ssl/registry-ca.pem  # default: public CAs
   - type: ga4gh-tes
     url: https://tes-fallback.example.org
     auth: basic
@@ -272,6 +273,18 @@ following redirects, at public addresses only unless
 `registry_allow_private_addresses` (e.g., a registry in the same cluster), so
 a registry that requires login for reads can't be used: it answers `401`,
 which is logged, and counts as unreachable.
+The registry's TLS certificate is always verified, by default with the
+public certificate authorities. For a registry with a certificate of a
+private certificate authority (e.g., an internal Cloud Registry), set
+`registry_ca_bundle` to that authority: a file (PEM) or a directory (with
+hashed names, as by `openssl rehash`) in the app's file system. The
+registry is then verified with the authorities of the bundle only; to trust
+the public ones too, put them into the same file. Relative paths are relative
+to the working directory at startup; booleans and empty values are refused, so
+verification can't be turned off. A bundle that doesn't exist, or holds no
+certificate, fails each read (`tls_error`, logged), so that the registry
+counts as unreachable. The bundle applies to the registry only, not to the
+backends discovered there.
 Each process caches the backends of each registry for `refresh_interval`
 seconds and keeps the last good list while a registry is unreachable or
 answers invalidly (retrying after 30 s at most), for `max_stale` seconds at

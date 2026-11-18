@@ -1,4 +1,4 @@
-"""Tests of the guarded HTTP client over real TLS, on a local server.
+"""Tests of the guarded HTTP client over real TLS, on local servers.
 
 They check whether errors say that a request was sent or not, as seen from
 real handshakes and connections rather than from errors raised by fakes,
@@ -8,12 +8,14 @@ and which certificate authorities the client trusts.
 import contextlib
 import datetime
 import ipaddress
+import json
 import shutil
 import socket
 import ssl
 import subprocess
 import threading
 from collections.abc import Callable, Iterator
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -24,11 +26,14 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 
+from foca.plugins import backends
+from foca.plugins.backends import RegistryEntry
 from foca.utils.http import (
     DeadlineExceeded,
     GuardedClient,
     RequestMaybeSent,
     RequestNotSent,
+    fetch_json,
 )
 
 Behaviour = Callable[[socket.socket, threading.Event], None]
@@ -452,3 +457,122 @@ def test_ca_bundle_relative(
     monkeypatch.chdir(certificate[0].parent)
     http = GuardedClient(ca_bundle=certificate[0].name)
     assert http.ca_bundle == str(certificate[0])
+
+
+def test_fetch_json_ca_bundle(
+    serve: Callable[[Behaviour], str], certificate: tuple[Path, Path]
+) -> None:
+    """`fetch_json()` verifies with the certificate authorities of a CA bundle."""
+    url = serve(_ok(certificate))
+    document = fetch_json(
+        url, 5, allow_private_addresses=True, ca_bundle=certificate[0]
+    )
+    assert document == [1, 2]
+
+
+@pytest.mark.usefixtures("trusted")
+def test_fetch_json_ca_bundle_only(
+    serve: Callable[[Behaviour], str],
+    certificate: tuple[Path, Path],
+    tmp_path: Path,
+) -> None:
+    """With a CA bundle, `fetch_json()` doesn't trust the default authorities."""
+    other, _ = _self_signed(tmp_path, "other-ca")
+    with pytest.raises(RequestNotSent) as info:
+        fetch_json(
+            serve(_handshake_only(certificate)),
+            5,
+            allow_private_addresses=True,
+            ca_bundle=other,
+        )
+    assert info.value.reason == "tls_error"
+
+
+@pytest.mark.parametrize(
+    ("ca_bundle", "error"), [(False, TypeError), (True, TypeError), ("", ValueError)]
+)
+def test_fetch_json_never_disables_verification(
+    ca_bundle: Any, error: type[Exception]
+) -> None:
+    """`fetch_json()` refuses CA bundles that would turn verification off."""
+    with pytest.raises(error):
+        fetch_json("https://127.0.0.1:1/", 5, ca_bundle=ca_bundle)
+
+
+class _RegistryHandler(BaseHTTPRequestHandler):
+    """Registry with one verified TES."""
+
+    def log_message(self, format: str, *args: Any) -> None:
+        """Don't log.
+
+        Args:
+            format: Format.
+            args: Arguments.
+        """
+
+    def do_GET(self) -> None:
+        """Answer `GET /services` and `GET /verifications`."""
+        tes = {
+            "id": "s1",
+            "url": "https://tes.example.org/ga4gh/tes/v1",
+            "type": {"group": "org.ga4gh", "artifact": "tes", "version": "1.1.0"},
+        }
+        document: Any = [tes]
+        if self.path.endswith("/verifications"):
+            document = [{"serviceId": "s1", "url": tes["url"], "type": tes["type"]}]
+        body = json.dumps(document).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+@pytest.fixture
+def tls_registry(certificate: tuple[Path, Path]) -> Iterator[str]:
+    """Serve a registry over TLS, with the local certificate.
+
+    Args:
+        certificate: Paths of the certificate and its key.
+
+    Yields:
+        Base URL of the registry's API.
+    """
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.load_cert_chain(*certificate)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), _RegistryHandler)
+    # handshakes run when connections are accepted; failed ones are dropped
+    httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    backends.clear_caches()
+    try:
+        yield f"https://127.0.0.1:{httpd.server_address[1]}/ga4gh/registry/v1"
+    finally:
+        backends.clear_caches()
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_registry_ca_bundle(
+    tls_registry: str, certificate: tuple[Path, Path], tmp_path: Path
+) -> None:
+    """Registries with certificates of a private CA are read with its bundle."""
+    options: dict[str, Any] = {
+        "type": "ga4gh-service-registry",
+        "url": tls_registry,
+        "registry_allow_private_addresses": True,
+        "allow_private_addresses": True,  # no DNS for the TES host
+        "timeout": 5,
+    }
+    # the default certificate authorities don't know the local one
+    entry = RegistryEntry.model_validate(options)
+    assert backends.get_cache(entry, "tes").urls() == []
+    other, _ = _self_signed(tmp_path, "other-ca")
+    entry = RegistryEntry.model_validate({**options, "registry_ca_bundle": str(other)})
+    assert backends.get_cache(entry, "tes").urls() == []
+    entry = RegistryEntry.model_validate(
+        {**options, "registry_ca_bundle": str(certificate[0])}
+    )
+    assert entry.registry_ca_bundle == str(certificate[0])
+    assert backends.get_cache(entry, "tes").urls() == ["https://tes.example.org"]

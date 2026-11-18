@@ -1206,6 +1206,7 @@ def fetch_json(
     allow_private_addresses: bool = False,
     allow_http: bool = False,
     max_response_size: int = MAX_RESPONSE_SIZE,
+    ca_bundle: str | os.PathLike[str] | None = None,
 ) -> Any:
     """Fetch a JSON document (e.g., of a service registry), without token.
 
@@ -1216,11 +1217,17 @@ def fetch_json(
             allowed.
         allow_http: Whether `http` URLs are allowed (e.g., for tests).
         max_response_size: Maximum size of the document, in bytes.
+        ca_bundle: Path of a file or directory of the certificate
+            authorities that the TLS certificate is verified with, instead
+            of the public ones (cf. :py:class:`GuardedClient`); `None` for
+            the public ones. Verification can't be turned off.
 
     Returns:
         The document.
 
     Raises:
+        TypeError: `ca_bundle` is no path or `None` (e.g., `False`).
+        ValueError: `ca_bundle` is empty.
         HttpError: The request failed, the status is not `200` (also for
             redirects, which are not followed; reason `http_<status>`), or
             the body is not JSON (reason `invalid_json`).
@@ -1230,6 +1237,7 @@ def fetch_json(
         allow_private_addresses=allow_private_addresses,
         allow_http=allow_http,
         max_response_size=max_response_size,
+        ca_bundle=ca_bundle,
     )
     try:
         response = client.get(url, headers={"Accept": "application/json"})

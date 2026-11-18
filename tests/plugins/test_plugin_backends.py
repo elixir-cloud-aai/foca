@@ -6,6 +6,7 @@ import threading
 import time
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any, Literal
 
 import pytest
@@ -956,15 +957,46 @@ def test_registry_options(registry: Registry) -> None:
     """Registries are read with their own address and scheme options."""
     entry = RegistryEntry(type="ga4gh-service-registry", url=REGISTRY)
     backends.get_cache(entry, "tes").urls()
-    assert registry.options == {"allow_private_addresses": False, "allow_http": False}
+    assert registry.options == {
+        "allow_private_addresses": False,
+        "allow_http": False,
+        "ca_bundle": None,
+    }
     entry = RegistryEntry(
         type="ga4gh-service-registry",
         url="http://registry.internal",
         url_schemes=["http"],
         registry_allow_private_addresses=True,
+        registry_ca_bundle="/etc/ssl/private-ca.pem",
     )
     backends.get_cache(entry, "tes").urls()
-    assert registry.options == {"allow_private_addresses": True, "allow_http": True}
+    assert registry.options == {
+        "allow_private_addresses": True,
+        "allow_http": True,
+        "ca_bundle": "/etc/ssl/private-ca.pem",
+    }
+
+
+def test_registry_ca_bundle_relative(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Relative CA bundles of registries are kept as absolute paths."""
+    monkeypatch.chdir(tmp_path)
+    entry = RegistryEntry(
+        type="ga4gh-service-registry", url=REGISTRY, registry_ca_bundle="ca.pem"
+    )
+    assert entry.registry_ca_bundle == str(tmp_path / "ca.pem")
+    entry = RegistryEntry(type="ga4gh-service-registry", url=REGISTRY)
+    assert entry.registry_ca_bundle is None
+
+
+@pytest.mark.parametrize("ca_bundle", [False, True, 0, "", b"/etc/ssl/certs", []])
+def test_registry_ca_bundle_never_disables_verification(ca_bundle: Any) -> None:
+    """CA bundles of registries that are no paths, or empty, are refused."""
+    with pytest.raises(ValidationError):
+        RegistryEntry(
+            type="ga4gh-service-registry", url=REGISTRY, registry_ca_bundle=ca_bundle
+        )
 
 
 class RegistryHandler(BaseHTTPRequestHandler):

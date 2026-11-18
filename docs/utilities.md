@@ -398,11 +398,13 @@ no certificate, fails each request before it is sent (`RequestNotSent`,
 
 `check_public_host(url)` resolves a host and checks all its addresses, e.g.,
 before a discovered URL is stored; `fetch_json(url, timeout)` reads a JSON
-document (e.g., of a service registry) with status `200` only. Plugins get a
-client bound to their deadline as `ctx.http` (cf. [Gateway
-plugins](plugins.md#writing-plugins)). `fetch_json()`, the registry reads of
-backend lists and `ctx.http` verify with the public certificate authorities
-only, for now.
+document (e.g., of a service registry) with status `200` only, verified with
+the public certificate authorities or, with `ca_bundle`, with those of a
+bundle (as for `GuardedClient`). Registry reads of backend lists take the
+bundle from the registry entry's `registry_ca_bundle` (cf. [Backend
+lists](plugins.md#backend-lists)). Plugins get a client bound to their
+deadline as `ctx.http` (cf. [Gateway plugins](plugins.md#writing-plugins)),
+which verifies with the public certificate authorities only, for now.
 
 ## Accessing the newest database document
 
