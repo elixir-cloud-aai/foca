@@ -2,7 +2,9 @@
 
 Gateway apps configure the backends that requests may be forwarded to as
 one ordered list of typed entries, under a key of their own (e.g., proTES:
-`custom.tes.backends`):
+`custom.tes.backends`). Backends of TES gateways have `type: ga4gh-tes`,
+those of WES gateways `type: ga4gh-wes` (`entry_type` of the API's type in
+`API_TYPES`); a list takes the backends of its app's API only:
 
 ```yaml
 backends:
@@ -11,6 +13,7 @@ backends:
     auth: client_credentials       # client_credentials | basic | none
     labels: {region: eu-north}
     location: {latitude: 60.17, longitude: 24.94}
+    api_path: /ga4gh/tes/v1        # default: the API's; `/` if at `url`
   - type: ga4gh-service-registry
     id: cloud-registry
     url: https://registry.example.org/ga4gh/registry/v1

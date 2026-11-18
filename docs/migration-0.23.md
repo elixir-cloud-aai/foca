@@ -16,6 +16,9 @@ and deployments need to change only if:
 - they are WES gateways with plugins, as [plugins get WES runs in a defined
   shape](#plugins-get-wes-runs-in-a-defined-shape).
 
+WES gateways may also drop workarounds for [backend lists, which now know
+WES](#backend-lists-know-wes).
+
 ## Subjects are always namespaced by issuer
 
 Subjects are namespaced by their issuer (`<namespace>|<subject>`, by default
@@ -215,3 +218,15 @@ new limits [`plugins.attachments`](configuration/plugins.md#attachments)
   tasks: `tags=` is no longer needed (passing it still works).
 - Raise `plugins.attachments` before upgrading if runs may have more or
   larger files.
+
+## Backend lists know WES
+
+[Backend lists](plugins.md#backend-lists) take WES instances
+(`type: ga4gh-wes`, API `wes` in `foca.plugins.backends.API_TYPES`), and
+`ServiceEntry` has an optional `api_path` (by default the API's path, e.g.,
+`/ga4gh/wes/v1`). `BackendList(entries, api=...)` now refuses backend
+entries of another API's type. Nothing needs to change, but WES gateways
+can drop their own registration of the WES API type, subclasses of
+`ServiceEntry` that only change its `type` or add `api_path`, and
+subclasses of `BackendList` that bypass its validation, and pass
+`api="wes"` instead.

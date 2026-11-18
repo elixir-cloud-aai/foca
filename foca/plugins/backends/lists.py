@@ -68,8 +68,9 @@ class BackendList:
 
         Raises:
             TypeError: The entries are not ordered (e.g., a set).
-            ValueError: The API has no backend type, or two entries have the
-                same identifier.
+            ValueError: The API has no backend type, an entry of a backend
+                has the type of another API, or two entries have the same
+                identifier.
         """
         if isinstance(entries, AbstractSet):
             raise TypeError("Backend entries must be ordered (e.g., a list)")
@@ -78,8 +79,13 @@ class BackendList:
         self.entries = list(BackendListConfig.model_validate(list(entries)).root)
         if api not in API_TYPES:
             raise ValueError(f"No backend type for API {api!r}")
-        # With a second API type, check `entry.type` against
-        # `API_TYPES[api].entry_type` here.
+        entry_type = API_TYPES[api].entry_type
+        for entry in self.entries:
+            if isinstance(entry, ServiceEntry) and entry.type != entry_type:
+                raise ValueError(
+                    f"Backend {entry.id!r} has type {entry.type!r}, but the"
+                    f" backends of API {api!r} have type {entry_type!r}"
+                )
         self.api = api
         self.public_url = public_url.rstrip("/") if public_url else None
         self._own = _location(self.public_url) if self.public_url else None

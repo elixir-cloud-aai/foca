@@ -1,5 +1,6 @@
 """Configuration models of backend lists (cf. :py:mod:`foca.plugins.backends`)."""
 
+import re
 from dataclasses import dataclass
 from typing import Annotated, Literal, Self
 
@@ -9,6 +10,7 @@ from pydantic import (
     Field,
     PositiveInt,
     RootModel,
+    field_validator,
     model_validator,
 )
 
@@ -37,8 +39,12 @@ class ApiType:
 
 API_TYPES: dict[str, ApiType] = {
     "tes": ApiType("org.ga4gh", "tes", "/ga4gh/tes/v1", "ga4gh-tes"),
+    "wes": ApiType("org.ga4gh", "wes", "/ga4gh/wes/v1", "ga4gh-wes"),
 }
 """API types of the apps' APIs, by API (cf. `GatewayApp.api`)."""
+
+# Absolute paths of unreserved characters (RFC 3986, section 2.3)
+_API_PATH = re.compile(r"(?:/[A-Za-z0-9._~-]+)+")
 
 
 class _Model(BaseModel):
@@ -80,7 +86,11 @@ class LocationConfig(_Model):
 
 
 class ServiceEntry(_Model):
-    """Backend of the app's API (`type: ga4gh-tes`).
+    """Backend of the app's API (`type: ga4gh-tes` or `type: ga4gh-wes`).
+
+    The type must be that of the app's API (`entry_type` of its API type in
+    :py:data:`API_TYPES`), which :py:class:`foca.plugins.backends.BackendList`
+    checks.
 
     Args:
         type: Type of the entry.
@@ -96,6 +106,11 @@ class ServiceEntry(_Model):
             if, and only if, `auth` is `basic`.
         labels: Labels, e.g., `{"region": "eu-north"}`.
         location: Location, e.g., for distance routing.
+        api_path: Path of the API, relative to `url`, for backends that
+            serve it elsewhere than its specification says; `/` (or empty)
+            if it is at `url` itself. By default, the path of the entry
+            type's API (e.g., `/ga4gh/tes/v1`; cf. :py:data:`API_TYPES`).
+            Apps send their requests to it; FOCA itself doesn't use it.
 
     Attributes:
         type: Type of the entry.
@@ -106,9 +121,11 @@ class ServiceEntry(_Model):
         basic: Environment variables with HTTP Basic credentials, if any.
         labels: Labels.
         location: Location, if any.
+        api_path: Path of the API, relative to `url`, without trailing
+            slash (empty if it is at `url` itself); set when validated.
     """
 
-    type: Literal["ga4gh-tes"]
+    type: Literal["ga4gh-tes", "ga4gh-wes"]
     url: str
     url_schemes: list[Literal["https", "http"]] = Field(default=["https"], min_length=1)
     # the normalized URL by default (set when validated)
@@ -117,10 +134,42 @@ class ServiceEntry(_Model):
     basic: BasicCredentialsConfig | None = None
     labels: dict[str, str] = {}
     location: LocationConfig | None = None
+    # the API path of the entry type by default (set when validated)
+    api_path: str | None = None
+
+    @field_validator("api_path")
+    @classmethod
+    def _check_api_path(cls, value: str | None) -> str | None:
+        """Check the API path, and remove trailing slashes.
+
+        Args:
+            value: API path, as given.
+
+        Returns:
+            The API path.
+
+        Raises:
+            ValueError: The path is neither empty nor absolute, has
+                characters other than unreserved ones (e.g., a query), or
+                empty segments or segments `.` or `..`.
+        """
+        if not value:
+            return value
+        if not value.startswith("/"):
+            raise ValueError("API path must be absolute")
+        path = value.removesuffix("/")
+        if path and (
+            not _API_PATH.fullmatch(path) or {".", ".."} & set(path.split("/"))
+        ):
+            raise ValueError(
+                "API path must have unreserved characters only, and no empty"
+                " segments or segments `.` or `..`"
+            )
+        return path
 
     @model_validator(mode="after")
     def _check(self) -> Self:
-        """Normalize the URL, default the identifier, check the credentials.
+        """Normalize the URL, default the identifier and API path, check auth.
 
         Returns:
             The entry.
@@ -134,6 +183,11 @@ class ServiceEntry(_Model):
         )
         if not self.id:
             self.id = self.url
+        if self.api_path is None:
+            self.api_path = next(
+                (t.path for t in API_TYPES.values() if t.entry_type == self.type),
+                "",
+            )
         if (self.auth == "basic") != (self.basic is not None):
             raise ValueError(
                 f"Backend {self.id!r}: `basic` is needed with, and only with,"
