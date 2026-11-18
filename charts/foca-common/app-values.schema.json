@@ -637,13 +637,17 @@
           "minimum": 1,
           "description": "Number of worker pods"
         },
+        "startupProbe": {
+          "type": ["object", "null"],
+          "description": "Startup probe of the worker's container, with one handler; null for none (Helm merges values into the app chart's default probe)"
+        },
         "readinessProbe": {
-          "type": "object",
-          "description": "Readiness probe of the worker's container; none if empty"
+          "type": ["object", "null"],
+          "description": "Readiness probe of the worker's container, with one handler; null for none (Helm merges values into the app chart's default probe)"
         },
         "livenessProbe": {
-          "type": "object",
-          "description": "Liveness probe of the worker's container; none if empty"
+          "type": ["object", "null"],
+          "description": "Liveness probe of the worker's container, with one handler; null for none (Helm merges values into the app chart's default probe)"
         },
         "terminationGracePeriodSeconds": {
           "type": "integer",

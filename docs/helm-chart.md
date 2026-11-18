@@ -179,7 +179,7 @@ your app's `valuesKey`:
 | `flower` | [Flower](#flower): `enabled`, `existingSecret`, `image`, `imagePullPolicy`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit` |
 | `<valuesKey>` | The app's container: `image` and `tag` (by default the chart's `appVersion`), `imagePullPolicy`, `replicas` (1 if not set), `autoscaling`, `topologySpreadConstraints`, `podDisruptionBudget` (`enabled`, true if not set, and `minAvailable` or `maxUnavailable`), `probePath`, `startupProbe`, `readinessProbe`, `livenessProbe`, `ingress`, `httpRoute`, `route`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit`, `preStopSleepSeconds`, `gunicorn`, `extraEnv`, `extraEnvFrom`, `rolloutOnSecrets` |
 | `mongodb` | MongoDB: `enabled`, `image`, `imagePullPolicy`, `auth`, `networkPolicy`, `persistence` (`volumeSize`, its size up to 0.1.0, is a deprecated alias of `persistence.size`), `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit` |
-| `worker` | Optional Celery worker: `enabled` (false if not set), `command`, `replicas`, `readinessProbe`, `livenessProbe` (none by default), `terminationGracePeriodSeconds`, `resources`, `tmpSizeLimit` |
+| `worker` | Optional Celery worker: `enabled` (false if not set), `command`, `replicas`, `startupProbe`, `readinessProbe`, `livenessProbe` (none by default; see [Probes](#probes)), `terminationGracePeriodSeconds`, `resources`, `tmpSizeLimit` |
 | `broker` | Optional broker: `enabled` (the bundled RabbitMQ; false if not set), `existingSecret`, `image`, `imagePullPolicy`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `persistence`, `dataSizeLimit`, `tmpSizeLimit` |
 
 The values are described in detail in the example's `values.yaml`.
@@ -1022,6 +1022,34 @@ in a file in between.
 
 FOCA has no health endpoints yet, so choose a path that needs no
 authentication and no database, as `probePath` does.
+
+The Celery worker's container has no probes by default: its pods are ready
+once started. `worker.startupProbe`, `worker.readinessProbe` and
+`worker.livenessProbe` are rendered as they are, e.g., an `exec` probe that
+runs `celery inspect ping` for the pod's worker (each check starts Python, so
+give it long periods and timeouts):
+
+```yaml title="values.yaml"
+worker:
+  startupProbe:
+    exec:
+      command:
+      - sh
+      - -c
+      - exec celery inspect ping --destination "celery@${HOSTNAME}" --timeout 10
+    periodSeconds: 15
+    timeoutSeconds: 30
+    failureThreshold: 20
+```
+
+An app chart may set such probes as defaults in its `values.yaml`. Helm merges
+the values into them, so set a probe to `null` for none (an empty map changes
+nothing), and set the default's handler to `null` for another type of check,
+e.g., `exec: null` next to `tcpSocket`. Rendering fails if a probe of the
+worker ends up with more than one handler (`exec`, `httpGet`, `tcpSocket` or
+`grpc`) or none, which Kubernetes would refuse; the probes are checked also if
+the worker is disabled. App charts copy `app-values.schema.json` again (see
+[Values](#values)) to use `worker.startupProbe` and `null` for the probes.
 
 ### Several replicas
 

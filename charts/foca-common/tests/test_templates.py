@@ -2288,19 +2288,154 @@ def test_celery_names(chart: Path) -> None:
     assert ("Service", "a" * 56 + "-broker") in docs
 
 
-def test_worker_probes(render: Callable[..., Docs]) -> None:
-    """The worker's probes are taken from the values."""
-    probe = {"exec": {"command": ["celery", "inspect", "ping"]}, "periodSeconds": 60}
-    docs = render(
-        *CELERY,
-        "--set-json",
-        f"worker.readinessProbe={json.dumps(probe)}",
-        "--set-json",
-        f"worker.livenessProbe={json.dumps(probe)}",
-    )
+WORKER_PROBES = ("startupProbe", "readinessProbe", "livenessProbe")
+PING = {"exec": {"command": ["celery", "inspect", "ping"]}, "periodSeconds": 60}
+
+
+@pytest.mark.parametrize("probe", WORKER_PROBES)
+def test_worker_probe_rendered(render: Callable[..., Docs], probe: str) -> None:
+    """Each probe of the worker is taken from the values, the others stay off."""
+    docs = render(*CELERY, "--set-json", f"worker.{probe}={json.dumps(PING)}")
     worker = _container(docs, WORKER)
-    assert worker["readinessProbe"] == probe
-    assert worker["livenessProbe"] == probe
+    assert worker[probe] == PING
+    assert not (set(WORKER_PROBES) - {probe}) & set(worker)
+
+
+@pytest.mark.parametrize("probe", WORKER_PROBES)
+@pytest.mark.parametrize("value", [{}, None])
+def test_worker_probe_empty_or_null_is_none(
+    render: Callable[..., Docs], probe: str, value: dict[str, Any] | None
+) -> None:
+    """An empty map or `null` renders no probe."""
+    docs = render(*CELERY, "--set-json", f"worker.{probe}={json.dumps(value)}")
+    assert probe not in _container(docs, WORKER)
+
+
+def _chart_with_worker_probe(chart: Path, tmp_path: Path, probe: str) -> Path:
+    """A copy of the chart with a default probe of the worker, as proTES has."""
+    chart_copy = tmp_path / "chart"
+    shutil.copytree(chart, chart_copy)
+    values = yaml.safe_load((chart_copy / "values.yaml").read_text())
+    values["worker"][probe] = PING
+    (chart_copy / "values.yaml").write_text(yaml.safe_dump(values))
+    return chart_copy
+
+
+@pytest.mark.parametrize("probe", WORKER_PROBES)
+def test_worker_probe_default_of_app(chart: Path, tmp_path: Path, probe: str) -> None:
+    """An app chart's default probe is rendered; values are merged into it."""
+    chart_copy = _chart_with_worker_probe(chart, tmp_path, probe)
+    worker = _container(index(template(chart_copy, *CELERY)), WORKER)
+    assert worker[probe] == PING
+    docs = index(
+        template(chart_copy, *CELERY, "--set", f"worker.{probe}.periodSeconds=5")
+    )
+    assert _container(docs, WORKER)[probe] == {**PING, "periodSeconds": 5}
+
+
+@pytest.mark.parametrize("probe", WORKER_PROBES)
+def test_worker_probe_null_over_default(
+    chart: Path, tmp_path: Path, probe: str
+) -> None:
+    """`null` turns off an app chart's default probe."""
+    chart_copy = _chart_with_worker_probe(chart, tmp_path, probe)
+    docs = index(template(chart_copy, *CELERY, "--set-json", f"worker.{probe}=null"))
+    assert probe not in _container(docs, WORKER)
+
+
+@pytest.mark.parametrize("probe", WORKER_PROBES)
+def test_worker_probe_other_handler_over_default(
+    chart: Path, tmp_path: Path, probe: str
+) -> None:
+    """With `exec: null`, a probe of another type replaces an app's default."""
+    chart_copy = _chart_with_worker_probe(chart, tmp_path, probe)
+    override = json.dumps({"exec": None, "tcpSocket": {"port": 8080}})
+    docs = index(
+        template(chart_copy, *CELERY, "--set-json", f"worker.{probe}={override}")
+    )
+    assert _container(docs, WORKER)[probe] == {
+        "tcpSocket": {"port": 8080},
+        "periodSeconds": 60,
+    }
+
+
+@pytest.mark.parametrize("probe", WORKER_PROBES)
+@pytest.mark.parametrize("handler", ["httpGet", "tcpSocket", "grpc"])
+def test_worker_probe_two_handlers(
+    chart: Path, tmp_path: Path, probe: str, handler: str
+) -> None:
+    """A handler merged into an app's default probe of another type fails."""
+    chart_copy = _chart_with_worker_probe(chart, tmp_path, probe)
+    override = json.dumps({handler: {"port": 8080}})
+    error = template_error(
+        chart_copy, *CELERY, "--set-json", f"worker.{probe}={override}"
+    )
+    assert f"worker.{probe} has more than one handler (exec, {handler})" in error
+    assert f"(e.g., worker.{probe}.exec: null)" in error
+
+
+@pytest.mark.parametrize("probe", WORKER_PROBES)
+def test_worker_probe_no_handler(chart: Path, tmp_path: Path, probe: str) -> None:
+    """A probe without a handler (e.g., only `exec: null` over a default) fails."""
+    chart_copy = _chart_with_worker_probe(chart, tmp_path, probe)
+    override = json.dumps({"exec": None})
+    error = template_error(
+        chart_copy, *CELERY, "--set-json", f"worker.{probe}={override}"
+    )
+    assert f"worker.{probe} has no handler" in error
+    assert f"set worker.{probe} to null for no probe" in error
+
+
+def test_worker_probe_empty_handler_counts(chart: Path, tmp_path: Path) -> None:
+    """An empty handler merged into an app's default probe is a second one."""
+    chart_copy = _chart_with_worker_probe(chart, tmp_path, "startupProbe")
+    error = template_error(
+        chart_copy, *CELERY, "--set-json", 'worker.startupProbe={"httpGet": {}}'
+    )
+    assert "worker.startupProbe has more than one handler (exec, httpGet)" in error
+
+
+def test_worker_probe_handler_must_be_map(render_error: Callable[..., str]) -> None:
+    """A handler that isn't a map fails."""
+    error = render_error(
+        *CELERY, "--set-json", 'worker.livenessProbe={"exec": ["celery"]}'
+    )
+    assert "worker.livenessProbe.exec must be a map" in error
+
+
+def test_worker_probes_checked_if_disabled(
+    render_error: Callable[..., str],
+) -> None:
+    """The worker's probes are checked also if the worker is disabled."""
+    probe = {"exec": PING["exec"], "tcpSocket": {"port": 8080}}
+    error = render_error("--set-json", f"worker.livenessProbe={json.dumps(probe)}")
+    assert "worker.livenessProbe has more than one handler" in error
+
+
+def test_worker_probe_must_be_map(chart: Path, tmp_path: Path) -> None:
+    """A probe that isn't a map fails also without the schema."""
+    error = template_error(
+        _chart_without_schema(chart, tmp_path),
+        *CELERY,
+        "--set",
+        "worker.startupProbe=ping",
+    )
+    assert "worker.startupProbe must be a map" in error
+
+
+def test_worker_without_values(chart: Path, tmp_path: Path) -> None:
+    """App charts without worker values (no background tasks) still render."""
+    chart_copy = _chart_without_schema(chart, tmp_path)
+    values = yaml.safe_load((chart_copy / "values.yaml").read_text())
+    del values["worker"]
+    (chart_copy / "values.yaml").write_text(yaml.safe_dump(values))
+    assert ("Deployment", "petstore") in index(template(chart_copy))
+
+
+@pytest.mark.parametrize("probe", WORKER_PROBES)
+def test_worker_probe_schema(render_error: Callable[..., str], probe: str) -> None:
+    """The schema rejects a probe that isn't a map or null."""
+    assert "schema" in render_error("--set", f"worker.{probe}=ping")
 
 
 def test_broker_settings(render: Callable[..., Docs]) -> None:
