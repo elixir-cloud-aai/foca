@@ -178,7 +178,8 @@ def _ca_bundle_path(ca_bundle: Any) -> str | None:
             or `None`.
 
     Returns:
-        Path, as text, or `None`.
+        Absolute path, as text (so that later changes of the working
+        directory don't change it), or `None`.
 
     Raises:
         TypeError: The value is no path (e.g., `False` or `True`, which
@@ -197,7 +198,7 @@ def _ca_bundle_path(ca_bundle: Any) -> str | None:
         raise TypeError(f"CA bundle must be a text path, not {type(path).__name__}")
     if not path:
         raise ValueError("CA bundle must not be empty")
-    return path
+    return os.path.abspath(path)
 
 
 def _redact(url: str) -> str:
@@ -656,6 +657,30 @@ class _GuardedAdapter(HTTPAdapter):
         self.guards = guards
         super().__init__()
 
+    def cert_verify(self, conn: Any, url: str, verify: Any, cert: Any) -> None:
+        """Set how a connection verifies certificates; refuse missing bundles.
+
+        Args:
+            conn: urllib3 connection.
+            url: URL of the request.
+            verify: `True` (public certificate authorities), or the path of
+                a CA bundle.
+            cert: Client certificate (none, for guarded clients).
+
+        Raises:
+            RequestNotSent: The CA bundle doesn't exist (`tls_error`), which
+                requests reports as a plain `OSError`, before connecting.
+        """
+        try:
+            super().cert_verify(conn, url, verify, cert)
+        except OSError as exc:
+            bundle = verify if isinstance(verify, str) else "(default)"
+            raise RequestNotSent(
+                "CA bundle not found: "
+                + bundle.encode("unicode_escape").decode("ascii"),
+                reason="tls_error",
+            ) from exc
+
     def init_poolmanager(self, *args: Any, **kwargs: Any) -> None:
         """Create the pool manager, with guarded connection pools.
 
@@ -905,7 +930,7 @@ class GuardedClient:
             allow_http: Whether `http` URLs are allowed.
             max_response_size: Maximum size of response bodies, in bytes.
             ca_bundle: Path of a file (PEM) or directory (hashed names, as
-                by `c_rehash`) of the certificate authorities that TLS
+                by `openssl rehash`) of the certificate authorities that TLS
                 certificates are verified with, instead of the public ones
                 (e.g., for backends with certificates of a private
                 certificate authority); `None` for the public ones.
@@ -1047,10 +1072,6 @@ class GuardedClient:
             _check_json_body(json, url)
         # Never `False`; a path only if set (an empty one would mean `False`)
         verify: str | bool = self._ca_bundle or True
-        if isinstance(verify, str) and not os.path.exists(verify):
-            raise RequestNotSent(
-                f"CA bundle not found: {_redact(verify)}", reason="tls_error"
-            )
         remaining = self.remaining()
         if remaining <= 0:
             raise DeadlineExceeded(f"No time left for {_redact(url)}")
@@ -1070,10 +1091,9 @@ class GuardedClient:
                     stream=True,
                     verify=verify,
                 )
-            except (AddressNotAllowed, DeadlineExceeded):
-                raise
-            # `OSError` of requests itself: a CA bundle removed since the check
-            except (requests.RequestException, ValueError, OSError) as exc:
+            except (AddressNotAllowed, DeadlineExceeded, RequestNotSent):
+                raise  # of the guards and the adapter, before sending
+            except (requests.RequestException, ValueError) as exc:
                 raise self._error(exc, url, guard) from exc
             try:
                 content = self._read(response, url, guard)
@@ -1091,7 +1111,7 @@ class GuardedClient:
         """Describe an error of sending a request.
 
         Args:
-            exc: Error (of requests, a `ValueError`, or an `OSError`).
+            exc: Error (of requests, or a `ValueError`).
             url: URL of the request.
             guard: Guard of the request.
 
@@ -1099,54 +1119,27 @@ class GuardedClient:
             In this order: if the deadline passed,
             :py:class:`RequestMaybeSent` if sending started, otherwise
             :py:class:`DeadlineExceeded`; if sending did not start,
-            :py:class:`RequestNotSent` (`tls_error`) for an `OSError` that
-            is no error of requests (which requests raises for a CA bundle
-            that doesn't exist), :py:class:`InvalidRequest` or
-            :py:class:`InvalidRequestURL` for invalid requests, otherwise
-            :py:class:`RequestNotSent` (cf. :py:func:`_classify`); if
-            sending started, :py:class:`RequestMaybeSent`.
+            :py:class:`InvalidRequest` or :py:class:`InvalidRequestURL` for
+            invalid requests, otherwise :py:class:`RequestNotSent` (cf.
+            :py:func:`_classify`); if sending started,
+            :py:class:`RequestMaybeSent`.
         """
         if guard.expired:
             if guard.sent:
                 return cls._expired(url)
             return DeadlineExceeded(f"{_redact(url)}: deadline passed before sending")
         if not guard.sent:
-            error = cls._not_sent(exc, url)
-            if error is not None:
-                return error
+            # Names and values of headers that can't be encoded when sending,
+            # and credentials (also of the URL) when building `Authorization`
+            if isinstance(exc, requests.exceptions.InvalidHeader | UnicodeEncodeError):
+                return InvalidRequest(
+                    f"Invalid header for {_redact(url)}", reason="invalid_header"
+                )
+            if isinstance(exc, ValueError):  # also `InvalidURL`
+                return InvalidRequestURL(f"Invalid URL: {type(exc).__name__}")
         if isinstance(exc, requests.RequestException):
             return _classify(exc, url, sent=guard.sent)
         return RequestMaybeSent(f"{_redact(url)} failed: {type(exc).__name__}")
-
-    @staticmethod
-    def _not_sent(exc: Exception, url: str) -> RequestNotSent | None:
-        """Describe an error before sending that is no error of a connection.
-
-        Args:
-            exc: Error (of requests, a `ValueError`, or an `OSError`).
-            url: URL of the request.
-
-        Returns:
-            :py:class:`RequestNotSent` (`tls_error`) for an `OSError` that is
-            no error of requests (which requests raises for a CA bundle that
-            doesn't exist), :py:class:`InvalidRequest` or
-            :py:class:`InvalidRequestURL` for invalid requests, otherwise
-            `None`.
-        """
-        if isinstance(exc, OSError) and not isinstance(exc, requests.RequestException):
-            return RequestNotSent(
-                f"TLS error for {_redact(url)}: {type(exc).__name__}",
-                reason="tls_error",
-            )
-        # Names and values of headers that can't be encoded when sending,
-        # and credentials (also of the URL) when building `Authorization`
-        if isinstance(exc, requests.exceptions.InvalidHeader | UnicodeEncodeError):
-            return InvalidRequest(
-                f"Invalid header for {_redact(url)}", reason="invalid_header"
-            )
-        if isinstance(exc, ValueError):  # also `InvalidURL`
-            return InvalidRequestURL(f"Invalid URL: {type(exc).__name__}")
-        return None
 
     @staticmethod
     def _expired(url: str) -> RequestMaybeSent:

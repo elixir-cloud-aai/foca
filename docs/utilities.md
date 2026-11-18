@@ -390,17 +390,19 @@ client = GuardedClient(timeout=10, ca_bundle="/etc/ssl/private-ca.pem")
 
 Certificates are then verified with the certificate authorities of the
 bundle only, not with the public ones; to trust both, put both into one
-file. Verification can't be turned off: `False`, `True` and empty paths are
-refused (`TypeError`, `ValueError`). A bundle that doesn't exist, or holds
+file. Verification can't be turned off: `False`, `True`, bytes and empty
+paths are refused (`TypeError`, `ValueError`), and `ca_bundle` can't be
+changed after the client is created. A bundle that doesn't exist, or holds
 no certificate, fails each request before it is sent (`RequestNotSent`,
 `tls_error`).
 
 `check_public_host(url)` resolves a host and checks all its addresses, e.g.,
 before a discovered URL is stored; `fetch_json(url, timeout)` reads a JSON
-document (e.g., of a service registry) with status `200` only, verified
-with the public certificate authorities. Plugins get a
+document (e.g., of a service registry) with status `200` only. Plugins get a
 client bound to their deadline as `ctx.http` (cf. [Gateway
-plugins](plugins.md#writing-plugins)).
+plugins](plugins.md#writing-plugins)). `fetch_json()`, the registry reads of
+backend lists and `ctx.http` verify with the public certificate authorities
+only, for now.
 
 ## Accessing the newest database document
 

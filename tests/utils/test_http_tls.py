@@ -313,7 +313,7 @@ def test_ca_bundle_directory(
     certificate: tuple[Path, Path],
     tmp_path: Path,
 ) -> None:
-    """A CA directory (with hashed names, as by `c_rehash`) is trusted."""
+    """A CA directory (with hashed names, as by `openssl rehash`) is trusted."""
     openssl = shutil.which("openssl")
     if openssl is None:  # pragma: no cover - OpenSSL CLI in CI and locally
         pytest.skip("openssl not installed")
@@ -374,24 +374,20 @@ def test_ca_bundle_invalid(
     assert info.value.reason == "tls_error"
 
 
-def test_ca_bundle_removed_before_sending(
+def test_default_bundle_missing(
     serve: Callable[[Behaviour], str],
     certificate: tuple[Path, Path],
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A CA bundle that disappears after the check fails before sending."""
-
-    def cert_verify(*args: object, **kwargs: object) -> None:
-        raise OSError("Could not find a suitable TLS CA certificate bundle")
-
-    monkeypatch.setattr(requests.adapters.HTTPAdapter, "cert_verify", cert_verify)
-    url = serve(_ok(certificate))
-    http = GuardedClient(
-        allow_private_addresses=True, timeout=5, ca_bundle=certificate[0]
+    """A default CA bundle that doesn't exist fails before sending."""
+    monkeypatch.setattr(
+        requests.adapters, "DEFAULT_CA_BUNDLE_PATH", str(tmp_path / "missing.pem")
     )
     with pytest.raises(RequestNotSent) as info:
-        http.post(url, json={})
+        client().post(serve(_ok(certificate)), json={})
     assert info.value.reason == "tls_error"
+    assert "(default)" in str(info.value)
 
 
 class _BytesPath:
@@ -431,3 +427,26 @@ def test_ca_bundle_read_only(certificate: tuple[Path, Path]) -> None:
     with pytest.raises(AttributeError):
         http.ca_bundle = False  # type: ignore[misc,assignment]
     assert GuardedClient().ca_bundle is None
+
+
+@pytest.mark.parametrize("value", [False, "", 0])
+def test_ca_bundle_changed_inside_still_verifies(
+    serve: Callable[[Behaviour], str],
+    certificate: tuple[Path, Path],
+    value: Any,
+) -> None:
+    """Even a falsy CA bundle set behind the property keeps verification on."""
+    http = client()
+    http._ca_bundle = value
+    with pytest.raises(RequestNotSent) as info:
+        http.post(serve(_handshake_only(certificate)), json={})
+    assert info.value.reason == "tls_error"
+
+
+def test_ca_bundle_relative(
+    certificate: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Relative CA bundles are kept as absolute paths."""
+    monkeypatch.chdir(certificate[0].parent)
+    http = GuardedClient(ca_bundle=certificate[0].name)
+    assert http.ca_bundle == str(certificate[0])
