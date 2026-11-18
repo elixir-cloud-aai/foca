@@ -279,8 +279,9 @@ private certificate authority (e.g., an internal Cloud Registry), set
 `registry_ca_bundle` to that authority: a file (PEM) or a directory (with
 hashed names, as by `openssl rehash`) in the app's file system. The
 registry is then verified with the authorities of the bundle only; to trust
-the public ones too, put them into the same file. Relative paths are relative
-to the working directory at startup; booleans and empty values are refused, so
+the public ones too, put them into the same file. Use absolute paths: relative
+ones are resolved against the working directory whenever the list is validated
+(also per request); booleans and empty values are refused, so
 verification can't be turned off. A bundle that doesn't exist, or holds no
 certificate, fails each read (`tls_error`, logged), so that the registry
 counts as unreachable. The bundle applies to the registry only, not to the

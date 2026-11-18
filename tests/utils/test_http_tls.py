@@ -2,13 +2,15 @@
 
 They check whether errors say that a request was sent or not, as seen from
 real handshakes and connections rather than from errors raised by fakes,
-and which certificate authorities the client trusts.
+and which certificate authorities the client trusts, also in `fetch_json()`
+and in registry reads of backend lists (`registry_ca_bundle`).
 """
 
 import contextlib
 import datetime
 import ipaddress
 import json
+import logging
 import shutil
 import socket
 import ssl
@@ -555,7 +557,10 @@ def tls_registry(certificate: tuple[Path, Path]) -> Iterator[str]:
 
 
 def test_registry_ca_bundle(
-    tls_registry: str, certificate: tuple[Path, Path], tmp_path: Path
+    tls_registry: str,
+    certificate: tuple[Path, Path],
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Registries with certificates of a private CA are read with its bundle."""
     options: dict[str, Any] = {
@@ -565,12 +570,26 @@ def test_registry_ca_bundle(
         "allow_private_addresses": True,  # no DNS for the TES host
         "timeout": 5,
     }
-    # the default certificate authorities don't know the local one
-    entry = RegistryEntry.model_validate(options)
-    assert backends.get_cache(entry, "tes").urls() == []
     other, _ = _self_signed(tmp_path, "other-ca")
-    entry = RegistryEntry.model_validate({**options, "registry_ca_bundle": str(other)})
-    assert backends.get_cache(entry, "tes").urls() == []
+    untrusted = [
+        None,  # the default certificate authorities don't know the local one
+        str(other),
+        str(tmp_path / "missing.pem"),
+    ]
+    for ca_bundle in untrusted:
+        caplog.clear()
+        entry = RegistryEntry.model_validate(
+            {**options, "registry_ca_bundle": ca_bundle}
+        )
+        with caplog.at_level(logging.WARNING):
+            assert backends.get_cache(entry, "tes").urls() == []
+        # failed TLS verification, before any request was sent
+        assert any(
+            isinstance(record.args, tuple)
+            and isinstance(record.args[1], RequestNotSent)
+            and record.args[1].reason == "tls_error"
+            for record in caplog.records
+        ), ca_bundle
     entry = RegistryEntry.model_validate(
         {**options, "registry_ca_bundle": str(certificate[0])}
     )

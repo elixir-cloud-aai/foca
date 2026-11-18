@@ -271,8 +271,9 @@ class RegistryEntry(_Model):
             names, as by `openssl rehash`) of the certificate authorities
             that the registry's TLS certificate is verified with, instead of
             the public ones (e.g., for a registry with a certificate of a
-            private certificate authority); relative paths are relative to
-            the working directory. Verification can't be turned off.
+            private certificate authority); relative paths are resolved
+            against the working directory when validated. Verification
+            can't be turned off.
         labels: Labels of the discovered backends.
 
     Attributes:
@@ -311,7 +312,8 @@ class RegistryEntry(_Model):
     allow_private_addresses: bool = False
     registry_allow_private_addresses: bool = False
     # strict: paths only, never booleans or bytes (no way to turn verification
-    # off); stored as absolute path (set when validated)
+    # off), as `GuardedClient` checks again (`foca.utils.http._ca_bundle_path`);
+    # absolute here already, so that the cache key (`get_cache()`) is too
     registry_ca_bundle: Annotated[str, Field(min_length=1, strict=True)] | None = None
     labels: dict[str, str] = {}
 

@@ -33,7 +33,9 @@ their current URL and API type, of an accepted version and environment, with
 `https` URLs whose hosts have public addresses only (unless allowed). The
 registry is the trust anchor, configured by the deployment: it is read
 without access token, over `https` (unless `url_schemes` allows `http`),
-at public addresses (unless `registry_allow_private_addresses`), without
+at public addresses (unless `registry_allow_private_addresses`), with its
+TLS certificate verified with the public certificate authorities (unless
+`registry_ca_bundle` names others; never unverified), without
 following redirects (cf. :py:mod:`foca.utils.http`). Registries that require
 login for reads therefore count as unreachable.
 
