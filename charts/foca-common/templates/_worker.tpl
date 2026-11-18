@@ -81,6 +81,10 @@ spec:
         envFrom:
         {{- . | nindent 8 }}
         {{- end }}
+        {{- with $worker.startupProbe }}
+        startupProbe:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
         {{- with $worker.readinessProbe }}
         readinessProbe:
           {{- toYaml . | nindent 10 }}

@@ -536,6 +536,42 @@ ConfigMap template, which every app chart renders.
 {{- include "foca-common.checkAudience" (dict "config" $config) -}}
 {{- end -}}
 {{- include "foca-common.checkStoreKeySecret" (dict "config" $config) -}}
+{{- include "foca-common.checkWorkerProbes" .root -}}
+{{- end -}}
+
+{{/*
+Fails if a probe of the worker (`worker.startupProbe`, `worker.readinessProbe`,
+`worker.livenessProbe`) isn't a map, or has more than one handler, or none
+(e.g., only `exec: null`), which Kubernetes refuses; an empty map or `null`
+is no probe. Checked also if the worker is disabled, so that its values stay
+valid. App charts may set default probes, e.g., an `exec` probe that runs
+`celery inspect ping`: Helm merges the values into them, so a handler of
+another type (e.g., `tcpSocket`) is added to their `exec` unless that is set
+to `null`. Call with the root context; renders nothing.
+*/}}
+{{- define "foca-common.checkWorkerProbes" -}}
+{{- $worker := .Values.worker -}}
+{{- if kindIs "map" $worker -}}
+{{- range $probe := list "startupProbe" "readinessProbe" "livenessProbe" -}}
+{{- $spec := index $worker $probe -}}
+{{- if not (or (kindIs "invalid" $spec) (kindIs "map" $spec)) -}}
+{{- fail (printf "worker.%s must be a map (a Kubernetes probe), or null for none" $probe) -}}
+{{- end -}}
+{{- if $spec -}}
+{{- $handlers := list -}}
+{{- range $handler := list "exec" "httpGet" "tcpSocket" "grpc" -}}
+{{- if get $spec $handler -}}
+{{- $handlers = append $handlers $handler -}}
+{{- end -}}
+{{- end -}}
+{{- if gt (len $handlers) 1 -}}
+{{- fail (printf "worker.%s has more than one handler (%s): Helm merges the values into the app chart's default probe, so set the default's handler to null for another type of probe (e.g., worker.%s.exec: null)" $probe (join ", " $handlers) $probe) -}}
+{{- else if not $handlers -}}
+{{- fail (printf "worker.%s has no handler (exec, httpGet, tcpSocket or grpc): set worker.%s to null for no probe" $probe $probe) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 
 {{/*

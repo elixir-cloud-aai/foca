@@ -83,6 +83,7 @@ worker:
   enabled: false
   command: []
   replicas: 1
+  startupProbe: {}
   readinessProbe: {}
   livenessProbe: {}
   terminationGracePeriodSeconds: 30
