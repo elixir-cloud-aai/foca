@@ -1,5 +1,6 @@
 """Configuration models of backend lists (cf. :py:mod:`foca.plugins.backends`)."""
 
+import re
 from dataclasses import dataclass
 from typing import Annotated, Literal, Self
 
@@ -9,6 +10,7 @@ from pydantic import (
     Field,
     PositiveInt,
     RootModel,
+    field_validator,
     model_validator,
 )
 
@@ -37,8 +39,35 @@ class ApiType:
 
 API_TYPES: dict[str, ApiType] = {
     "tes": ApiType("org.ga4gh", "tes", "/ga4gh/tes/v1", "ga4gh-tes"),
+    "wes": ApiType("org.ga4gh", "wes", "/ga4gh/wes/v1", "ga4gh-wes"),
 }
 """API types of the apps' APIs, by API (cf. `GatewayApp.api`)."""
+
+# Absolute paths of unreserved characters (RFC 3986, section 2.3)
+_API_PATH = re.compile(r"(?:/[A-Za-z0-9._~-]+)+")
+
+
+def _check_path(value: str) -> None:
+    """Check an API path of a backend.
+
+    Args:
+        value: API path, with or without trailing slash.
+
+    Raises:
+        ValueError: The path is neither empty nor absolute, has characters
+            other than unreserved ones (e.g., a query), or empty segments or
+            segments `.` or `..`.
+    """
+    if not value:
+        return
+    if not value.startswith("/"):
+        raise ValueError("API path must be absolute")
+    path = value.removesuffix("/")
+    if path and (not _API_PATH.fullmatch(path) or {".", ".."} & set(path.split("/"))):
+        raise ValueError(
+            "API path must have unreserved characters only, and no empty"
+            " segments or segments `.` or `..`"
+        )
 
 
 class _Model(BaseModel):
@@ -80,7 +109,11 @@ class LocationConfig(_Model):
 
 
 class ServiceEntry(_Model):
-    """Backend of the app's API (`type: ga4gh-tes`).
+    """Backend of the app's API (`type: ga4gh-tes` or `type: ga4gh-wes`).
+
+    The type must be that of the app's API (`entry_type` of its API type in
+    :py:data:`API_TYPES`), which :py:class:`foca.plugins.backends.BackendList`
+    checks.
 
     Args:
         type: Type of the entry.
@@ -96,6 +129,11 @@ class ServiceEntry(_Model):
             if, and only if, `auth` is `basic`.
         labels: Labels, e.g., `{"region": "eu-north"}`.
         location: Location, e.g., for distance routing.
+        api_path: Path of the API, relative to `url`, for backends that
+            serve it elsewhere than its specification says; `/` (or empty)
+            if it is at `url` itself. By default, the path of the entry
+            type's API (e.g., `/ga4gh/tes/v1`; cf. :py:data:`API_TYPES`).
+            Apps send their requests to it; FOCA itself doesn't use it.
 
     Attributes:
         type: Type of the entry.
@@ -106,9 +144,11 @@ class ServiceEntry(_Model):
         basic: Environment variables with HTTP Basic credentials, if any.
         labels: Labels.
         location: Location, if any.
+        api_path: Path of the API, relative to `url`, without trailing
+            slash (empty if it is at `url` itself); set when validated.
     """
 
-    type: Literal["ga4gh-tes"]
+    type: Literal["ga4gh-tes", "ga4gh-wes"]
     url: str
     url_schemes: list[Literal["https", "http"]] = Field(default=["https"], min_length=1)
     # the normalized URL by default (set when validated)
@@ -117,23 +157,61 @@ class ServiceEntry(_Model):
     basic: BasicCredentialsConfig | None = None
     labels: dict[str, str] = {}
     location: LocationConfig | None = None
+    # the API path of the entry type by default (set when validated)
+    api_path: str | None = None
+
+    @field_validator("api_path")
+    @classmethod
+    def _check_api_path(cls, value: str | None) -> str | None:
+        """Check the API path.
+
+        Leaves the path as given, so that validators of subclasses that
+        redefine the field (e.g., proTES's) get it as given too; trailing
+        slashes are removed when the entry is validated (cf. `_check`).
+
+        Args:
+            value: API path, as given.
+
+        Returns:
+            The API path, unchanged.
+
+        Raises:
+            ValueError: The path is neither empty nor absolute, has
+                characters other than unreserved ones (e.g., a query), or
+                empty segments or segments `.` or `..`.
+        """
+        if value is not None:
+            _check_path(value)
+        return value
 
     @model_validator(mode="after")
     def _check(self) -> Self:
-        """Normalize the URL, default the identifier, check the credentials.
+        """Normalize the URL, default the identifier and API path, check auth.
+
+        The API path is checked again, as defaults of subclasses (e.g.,
+        apps' own) are not validated by field validators.
 
         Returns:
             The entry.
 
         Raises:
             ValueError: The URL is invalid, has user info or another scheme,
-                or `basic` is missing for `auth: basic` or set otherwise.
+                the type has no API type and the entry no API path, the API
+                path is invalid, or `basic` is missing for `auth: basic` or
+                set otherwise.
         """
         self.url = normalize_url(
             self.url, schemes=self.url_schemes, name="Backend URLs"
         )
         if not self.id:
             self.id = self.url
+        if self.api_path is None:
+            paths = {t.entry_type: t.path for t in API_TYPES.values()}
+            if self.type not in paths:
+                raise ValueError(f"No API type for backend type {self.type!r}")
+            self.api_path = paths[self.type]
+        _check_path(self.api_path)
+        self.api_path = self.api_path.removesuffix("/")
         if (self.auth == "basic") != (self.basic is not None):
             raise ValueError(
                 f"Backend {self.id!r}: `basic` is needed with, and only with,"

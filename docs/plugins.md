@@ -186,7 +186,11 @@ are never forwarded by the engine.
 
 Gateway apps configure their backends as one ordered list of typed
 entries, under a key of their own (e.g., proTES: `custom.tes.backends`),
-validated by `foca.plugins.backends.BackendListConfig`:
+validated by `foca.plugins.backends.BackendListConfig`. Backends of TES
+gateways have `type: ga4gh-tes`, those of WES gateways `type: ga4gh-wes`
+(the `entry_type` of the API in `foca.plugins.backends.API_TYPES`); service
+registries (`type: ga4gh-service-registry`) yield the backends of the app's
+API in either:
 
 ```yaml
 backends:
@@ -196,6 +200,7 @@ backends:
     auth: client_credentials       # client_credentials | basic | none
     labels: {region: eu-north}
     location: {latitude: 60.17, longitude: 24.94}
+    api_path: /ga4gh/tes/v1        # default: the API's; `/` if at `url`
   - type: ga4gh-service-registry
     id: cloud-registry
     url: https://registry.example.org/ga4gh/registry/v1
@@ -215,13 +220,23 @@ backends:
 ```
 
 Entry `id`s default to the normalized URL and must be unique; URLs must not
-have user info. Apps name the key with
+have user info. `api_path` is where the backend serves the API, relative to
+`url`, for backends that serve it elsewhere than the API's specification
+says (by default `/ga4gh/tes/v1` or `/ga4gh/wes/v1`; `/` if at `url`
+itself): absolute, of unreserved characters only, without `.` or `..`
+segments, and stored without trailing slash. FOCA doesn't use it itself;
+apps send their requests there (`entry_for(backend).api_path` for configured
+backends; discovered ones serve the API at their URL plus the API's path).
+Apps may subclass `ServiceEntry` for settings of their own (e.g., another
+default `api_path`, or fewer `auth` modes). Apps name the key with
 `GatewayApp(backends=lambda conf: conf.custom.tes.backends)`: `create_app()`
 then checks the list (lists with registry entries need `server.public_url`,
 so that the gateway never discovers itself), and
 `foca.plugins.runtime.get_backend_list()` returns it, with the app's API and
-public URL. `BackendList(entries, api="tes", public_url=...)` turns the
-entries into the candidates of a request, in order:
+public URL. `BackendList(entries, api="tes", public_url=...)` (or
+`api="wes"`) turns the entries into the candidates of a request, in order;
+it refuses backend entries of another API's type (e.g., `ga4gh-wes` in a
+list of a TES gateway), so that `create_app()` fails on them:
 
 - `expand()`: configured backends and the backends discovered in each
   registry, in the registry's order. Backends with the same URL are listed

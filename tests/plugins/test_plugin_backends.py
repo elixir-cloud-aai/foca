@@ -6,10 +6,10 @@ import threading
 import time
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
+from typing import Any, Literal
 
 import pytest
-from pydantic import ValidationError
+from pydantic import ValidationError, field_validator
 
 from foca.plugins import Backend, backends
 from foca.plugins.backends import (
@@ -163,7 +163,7 @@ def test_entries() -> None:
         ],
         [{"type": "ga4gh-service-registry", "url": "http://registry.example.org"}],
         [{"type": "ga4gh-tes", "url": "https://a.example.org"}] * 2,
-        [{"type": "ga4gh-wes", "url": "https://a.example.org"}],
+        [{"type": "ga4gh-drs", "url": "https://a.example.org"}],
     ):
         with pytest.raises(ValidationError):
             BackendListConfig.model_validate(invalid)
@@ -172,7 +172,156 @@ def test_entries() -> None:
 def test_unknown_api() -> None:
     """Only APIs with a backend type are supported."""
     with pytest.raises(ValueError, match="No backend type"):
-        BackendList([], api="wes")
+        BackendList([], api="drs")
+
+
+@pytest.mark.parametrize(
+    ("api", "entry_type", "other_type"),
+    [("tes", "ga4gh-tes", "ga4gh-wes"), ("wes", "ga4gh-wes", "ga4gh-tes")],
+)
+def test_entry_types(api: str, entry_type: str, other_type: str) -> None:
+    """Lists take the entries of their own API only, and registries."""
+    entries = [
+        {"type": entry_type, "url": "https://a.example.org"},
+        {"type": "ga4gh-service-registry", "url": REGISTRY},
+    ]
+    assert [b.url for b in BackendList(entries, api=api).expand()] == [
+        "https://a.example.org"
+    ]
+    other = {"type": other_type, "url": "https://b.example.org", "id": "b"}
+    with pytest.raises(ValueError, match=f"'b'.*{other_type!r}.*{entry_type!r}"):
+        BackendList([*entries, other], api=api)
+
+
+def test_wes_discovery(registry: Registry) -> None:
+    """Registry entries of WES lists yield the verified WES instances."""
+    wes = {"group": "org.ga4gh", "artifact": "wes", "version": "1.1.0"}
+    registry.services = [
+        service("t1", "https://tes-a.example.org"),
+        service("w1", "https://wes-a.example.org/ga4gh/wes/v1", type=wes),
+    ]
+    entries = [{"type": "ga4gh-service-registry", "url": REGISTRY}]
+    assert [b.url for b in BackendList(entries, api="wes").expand()] == [
+        "https://wes-a.example.org"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("entry_type", "given", "expected"),
+    [
+        ("ga4gh-tes", None, "/ga4gh/tes/v1"),
+        ("ga4gh-wes", None, "/ga4gh/wes/v1"),
+        ("ga4gh-wes", "/", ""),
+        ("ga4gh-wes", "", ""),
+        ("ga4gh-wes", "/api/wes/v1/", "/api/wes/v1"),
+        ("ga4gh-tes", "/a-b/c_d/e.f~g", "/a-b/c_d/e.f~g"),
+    ],
+)
+def test_api_path(entry_type: str, given: str | None, expected: str) -> None:
+    """API paths default to the API's and lose trailing slashes."""
+    data: dict[str, Any] = {"type": entry_type, "url": "https://a.example.org"}
+    if given is not None:
+        data["api_path"] = given
+    assert ServiceEntry.model_validate(data).api_path == expected
+
+
+@pytest.mark.parametrize(
+    "api_path",
+    ["ga4gh/tes/v1", "/a/../b", "/a/./b", "/a//b", "/a?b", "/a#b", "/a b", "//"],
+)
+def test_invalid_api_path(api_path: str) -> None:
+    """API paths are absolute, of unreserved characters, without dot segments."""
+    with pytest.raises(ValidationError, match="API path"):
+        ServiceEntry(type="ga4gh-tes", url="https://a.example.org", api_path=api_path)
+
+
+def test_api_path_of_subclasses() -> None:
+    """Apps may override the API path field, e.g., with a default of their own."""
+
+    class AppEntry(ServiceEntry):
+        """Entry with an API path default of the app's."""
+
+        api_path: str = "/custom/"
+
+    assert AppEntry(type="ga4gh-tes", url="https://a.example.org").api_path == (
+        "/custom"
+    )
+    entry = AppEntry(type="ga4gh-tes", url="https://a.example.org", api_path="/x/")
+    assert entry.api_path == "/x"
+    with pytest.raises(ValidationError, match="API path"):
+        AppEntry(type="ga4gh-tes", url="https://a.example.org", api_path="x")
+
+    class InvalidDefault(ServiceEntry):
+        """Entry with an invalid API path default."""
+
+        api_path: str = "/a/../b"
+
+    with pytest.raises(ValidationError, match="API path"):
+        InvalidDefault(type="ga4gh-tes", url="https://a.example.org")
+
+
+def test_api_path_without_api_type() -> None:
+    """Entries of types without an API type need an API path of their own."""
+
+    class AppEntry(ServiceEntry):
+        """Entry of a type without an API type."""
+
+        type: Literal["ga4gh-drs"]  # type: ignore[assignment]
+
+    with pytest.raises(ValidationError, match="No API type for backend type"):
+        AppEntry(type="ga4gh-drs", url="https://a.example.org")
+    entry = AppEntry(type="ga4gh-drs", url="https://a.example.org", api_path="/")
+    assert entry.api_path == ""
+
+
+def test_api_path_of_candidates() -> None:
+    """Apps get the API path of configured backends from their entries."""
+    backend_list = BackendList(
+        [
+            {
+                "type": "ga4gh-wes",
+                "url": "https://wes.example.org",
+                "api_path": "/api/wes/v1/",
+            }
+        ],
+        api="wes",
+    )
+    entry = backend_list.entry_for(backend_list.expand()[0])
+    assert isinstance(entry, ServiceEntry)
+    assert entry.api_path == "/api/wes/v1"
+
+
+def test_api_path_with_validators_of_subclasses() -> None:
+    """Validators of apps' own API path fields get the path as given."""
+    seen: list[str] = []
+
+    class AppEntry(ServiceEntry):
+        """Entry with an API path validator of the app's (as in proTES)."""
+
+        api_path: str = "/ga4gh/tes/v1"
+
+        @field_validator("api_path")
+        @classmethod
+        def check_api_path(cls, value: str) -> str:
+            """Refuse relative paths, and remove trailing slashes.
+
+            Args:
+                value: API path.
+
+            Returns:
+                The API path.
+
+            Raises:
+                ValueError: The path is not absolute.
+            """
+            seen.append(value)
+            if not value.startswith("/"):
+                raise ValueError("API path must be absolute")
+            return value.removesuffix("/")
+
+    entry = AppEntry(type="ga4gh-tes", url="https://a.example.org", api_path="/")
+    assert entry.api_path == ""
+    assert seen == ["/"]
 
 
 def test_expand(registry: Registry) -> None:
