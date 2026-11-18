@@ -1499,6 +1499,32 @@ def test_ingress_body_size_invalid(
     assert f"petstore.ingress.annotations: {BODY_SIZE} must be a size" in error
 
 
+def test_ingress_body_size_number(render_error: Callable[..., str]) -> None:
+    """The schema refuses a number as the annotation.
+
+    Numbers from values files are floats, which the check would read as,
+    e.g., `2e+07`; annotations must be strings anyway.
+
+    Args:
+        render_error: Renders the chart, expecting it to fail.
+    """
+    error = render_error(
+        "--set-json", f'petstore.ingress.annotations={{"{BODY_SIZE}": 20000000}}'
+    )
+    assert "got number, want null or string" in error
+
+
+def test_ingress_body_size_settings_limit(
+    chart_with_settings: Callable[[str], Path],
+) -> None:
+    """The check applies to the limit of the app's settings, too."""
+    chart = chart_with_settings(FULL_SETTINGS)
+    error = template_error(chart, *AUDIENCE, *_body_size("512k"))
+    assert "(512k) must allow at least" in error
+    assert "(1048576 bytes)" in error
+    index(template(chart, *AUDIENCE, *_body_size("1m")))
+
+
 @pytest.mark.parametrize("value", ["0", "1.5", '"1m"'])
 def test_max_content_length_invalid(chart: Path, value: str, tmp_path: Path) -> None:
     """Invalid maximum content lengths fail, also without an Ingress."""
