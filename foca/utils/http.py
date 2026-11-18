@@ -13,8 +13,9 @@ forgery (SSRF) vectors and can hang or read without bounds. The
 - never follows redirects (they are returned as responses, within the same
   limits as other responses);
 - ignores proxy settings and `.netrc` files of the environment;
-- uses `https` only, with TLS verification always on, unless `http` is
-  allowed explicitly;
+- uses `https` only, with TLS verification always on (with the public
+  certificate authorities, or those of a given CA bundle instead), unless
+  `http` is allowed explicitly;
 - bounds each request as a whole by a deadline (name resolution,
   connecting, sending and reading, also of servers that send slowly; the
   connect timeout is capped) and the size of each response;
@@ -28,6 +29,7 @@ Built on requests and urllib3; independent of the web framework.
 import contextlib
 import ipaddress
 import json
+import os
 import re
 import socket
 import threading
@@ -166,6 +168,37 @@ def is_public_address(address: ipaddress.IPv4Address | ipaddress.IPv6Address) ->
         elif address.is_site_local:
             return False
     return address.is_global and not address.is_multicast
+
+
+def _ca_bundle_path(ca_bundle: Any) -> str | None:
+    """Check the path of a CA bundle.
+
+    Args:
+        ca_bundle: Path of a file or directory of certificate authorities,
+            or `None`.
+
+    Returns:
+        Absolute path, as text (so that later changes of the working
+        directory don't change it), or `None`.
+
+    Raises:
+        TypeError: The value is no path (e.g., `False` or `True`, which
+            would turn verification off or leave it to requests).
+        ValueError: The path is empty (which requests would take as
+            "don't verify").
+    """
+    if ca_bundle is None:
+        return None
+    if not isinstance(ca_bundle, str | os.PathLike):
+        raise TypeError(
+            f"CA bundle must be a path or None, not {type(ca_bundle).__name__}"
+        )
+    path = os.fspath(ca_bundle)
+    if not isinstance(path, str):
+        raise TypeError(f"CA bundle must be a text path, not {type(path).__name__}")
+    if not path:
+        raise ValueError("CA bundle must not be empty")
+    return os.path.abspath(path)
 
 
 def _redact(url: str) -> str:
@@ -624,6 +657,30 @@ class _GuardedAdapter(HTTPAdapter):
         self.guards = guards
         super().__init__()
 
+    def cert_verify(self, conn: Any, url: str, verify: Any, cert: Any) -> None:
+        """Set how a connection verifies certificates; refuse missing bundles.
+
+        Args:
+            conn: urllib3 connection.
+            url: URL of the request.
+            verify: `True` (public certificate authorities), or the path of
+                a CA bundle.
+            cert: Client certificate (none, for guarded clients).
+
+        Raises:
+            RequestNotSent: The CA bundle doesn't exist (`tls_error`), which
+                requests reports as a plain `OSError`, before connecting.
+        """
+        try:
+            super().cert_verify(conn, url, verify, cert)
+        except OSError as exc:
+            bundle = verify if isinstance(verify, str) else "(default)"
+            raise RequestNotSent(
+                "CA bundle not found: "
+                + bundle.encode("unicode_escape").decode("ascii"),
+                reason="tls_error",
+            ) from exc
+
     def init_poolmanager(self, *args: Any, **kwargs: Any) -> None:
         """Create the pool manager, with guarded connection pools.
 
@@ -841,6 +898,9 @@ class GuardedClient:
             allowed (e.g., for tests and private deployments).
         allow_http: Whether `http` URLs are allowed.
         max_response_size: Maximum size of response bodies, in bytes.
+        ca_bundle: Path of the file or directory of the certificate
+            authorities that TLS certificates are verified with, instead of
+            the public ones, if any (read-only).
 
     Examples:
         >>> client = GuardedClient(timeout=5)
@@ -858,6 +918,7 @@ class GuardedClient:
         allow_private_addresses: bool = False,
         allow_http: bool = False,
         max_response_size: int = MAX_RESPONSE_SIZE,
+        ca_bundle: str | os.PathLike[str] | None = None,
     ) -> None:
         """Create the client.
 
@@ -868,15 +929,36 @@ class GuardedClient:
                 are allowed.
             allow_http: Whether `http` URLs are allowed.
             max_response_size: Maximum size of response bodies, in bytes.
+            ca_bundle: Path of a file (PEM) or directory (hashed names, as
+                by `openssl rehash`) of the certificate authorities that TLS
+                certificates are verified with, instead of the public ones
+                (e.g., for backends with certificates of a private
+                certificate authority); `None` for the public ones.
+                Verification can't be turned off.
+
+        Raises:
+            TypeError: `ca_bundle` is no path or `None` (e.g., `False`).
+            ValueError: `ca_bundle` is empty.
         """
         self.deadline = deadline
         self.timeout = timeout
         self.allow_private_addresses = allow_private_addresses
         self.allow_http = allow_http
         self.max_response_size = max_response_size
+        self._ca_bundle = _ca_bundle_path(ca_bundle)
         self._guards = _Guards(allow_private_addresses)
         self._session: requests.Session | None = None
         self._session_lock = threading.Lock()
+
+    @property
+    def ca_bundle(self) -> str | None:
+        """Get the CA bundle that TLS certificates are verified with.
+
+        Returns:
+            Path of the file or directory of the certificate authorities;
+            `None` for the public ones.
+        """
+        return self._ca_bundle
 
     @property
     def session(self) -> requests.Session:
@@ -972,7 +1054,8 @@ class GuardedClient:
             DeadlineExceeded: The deadline passed before sending.
             RequestNotSent: The request certainly did not reach the server,
                 as no byte of it was sent (e.g.,
-                :py:class:`AddressNotAllowed`, TLS handshake failed, connection
+                :py:class:`AddressNotAllowed`, TLS handshake failed, the CA
+                bundle doesn't exist or holds no certificates, connection
                 lost while connecting).
             RequestMaybeSent: The server may have received the request, as
                 sending it started (e.g., read timeout, TLS error or connection
@@ -987,6 +1070,8 @@ class GuardedClient:
             raise InvalidRequestURL("Invalid HTTP method")
         if json is not None:
             _check_json_body(json, url)
+        # Never `False`; a path only if set (an empty one would mean `False`)
+        verify: str | bool = self._ca_bundle or True
         remaining = self.remaining()
         if remaining <= 0:
             raise DeadlineExceeded(f"No time left for {_redact(url)}")
@@ -1004,10 +1089,10 @@ class GuardedClient:
                     timeout=(min(remaining, MAX_CONNECT_TIMEOUT), remaining),
                     allow_redirects=False,
                     stream=True,
-                    verify=True,
+                    verify=verify,
                 )
-            except (AddressNotAllowed, DeadlineExceeded):
-                raise
+            except (AddressNotAllowed, DeadlineExceeded, RequestNotSent):
+                raise  # of the guards and the adapter, before sending
             except (requests.RequestException, ValueError) as exc:
                 raise self._error(exc, url, guard) from exc
             try:

@@ -417,12 +417,12 @@ class FakeHttp(GuardedClient):
         Args:
             kwargs: Arguments of :py:class:`foca.utils.http.GuardedClient`
                 (e.g., the call's `deadline`); others are those of this
-                client.
+                client, also its `ca_bundle`.
 
         Returns:
             Client.
         """
-        options = {**self.options(), **kwargs}
+        options = {"ca_bundle": self.ca_bundle, **self.options(), **kwargs}
         return FakeHttp(_state=self._state, **options)
 
     def options(self) -> dict[str, Any]:
