@@ -13,8 +13,9 @@ forgery (SSRF) vectors and can hang or read without bounds. The
 - never follows redirects (they are returned as responses, within the same
   limits as other responses);
 - ignores proxy settings and `.netrc` files of the environment;
-- uses `https` only, with TLS verification always on, unless `http` is
-  allowed explicitly;
+- uses `https` only, with TLS verification always on (with the public
+  certificate authorities, or those of a given CA bundle instead), unless
+  `http` is allowed explicitly;
 - bounds each request as a whole by a deadline (name resolution,
   connecting, sending and reading, also of servers that send slowly; the
   connect timeout is capped) and the size of each response;
@@ -28,6 +29,7 @@ Built on requests and urllib3; independent of the web framework.
 import contextlib
 import ipaddress
 import json
+import os
 import re
 import socket
 import threading
@@ -166,6 +168,36 @@ def is_public_address(address: ipaddress.IPv4Address | ipaddress.IPv6Address) ->
         elif address.is_site_local:
             return False
     return address.is_global and not address.is_multicast
+
+
+def _ca_bundle_path(ca_bundle: Any) -> str | None:
+    """Check the path of a CA bundle.
+
+    Args:
+        ca_bundle: Path of a file or directory of certificate authorities,
+            or `None`.
+
+    Returns:
+        Path, as text, or `None`.
+
+    Raises:
+        TypeError: The value is no path (e.g., `False` or `True`, which
+            would turn verification off or leave it to requests).
+        ValueError: The path is empty (which requests would take as
+            "don't verify").
+    """
+    if ca_bundle is None:
+        return None
+    if not isinstance(ca_bundle, str | os.PathLike):
+        raise TypeError(
+            f"CA bundle must be a path or None, not {type(ca_bundle).__name__}"
+        )
+    path = os.fspath(ca_bundle)
+    if not isinstance(path, str):
+        raise TypeError(f"CA bundle must be a text path, not {type(path).__name__}")
+    if not path:
+        raise ValueError("CA bundle must not be empty")
+    return path
 
 
 def _redact(url: str) -> str:
@@ -841,6 +873,9 @@ class GuardedClient:
             allowed (e.g., for tests and private deployments).
         allow_http: Whether `http` URLs are allowed.
         max_response_size: Maximum size of response bodies, in bytes.
+        ca_bundle: Path of the file or directory of the certificate
+            authorities that TLS certificates are verified with, instead of
+            the public ones, if any (read-only).
 
     Examples:
         >>> client = GuardedClient(timeout=5)
@@ -858,6 +893,7 @@ class GuardedClient:
         allow_private_addresses: bool = False,
         allow_http: bool = False,
         max_response_size: int = MAX_RESPONSE_SIZE,
+        ca_bundle: str | os.PathLike[str] | None = None,
     ) -> None:
         """Create the client.
 
@@ -868,15 +904,36 @@ class GuardedClient:
                 are allowed.
             allow_http: Whether `http` URLs are allowed.
             max_response_size: Maximum size of response bodies, in bytes.
+            ca_bundle: Path of a file (PEM) or directory (hashed names, as
+                by `c_rehash`) of the certificate authorities that TLS
+                certificates are verified with, instead of the public ones
+                (e.g., for backends with certificates of a private
+                certificate authority); `None` for the public ones.
+                Verification can't be turned off.
+
+        Raises:
+            TypeError: `ca_bundle` is no path or `None` (e.g., `False`).
+            ValueError: `ca_bundle` is empty.
         """
         self.deadline = deadline
         self.timeout = timeout
         self.allow_private_addresses = allow_private_addresses
         self.allow_http = allow_http
         self.max_response_size = max_response_size
+        self._ca_bundle = _ca_bundle_path(ca_bundle)
         self._guards = _Guards(allow_private_addresses)
         self._session: requests.Session | None = None
         self._session_lock = threading.Lock()
+
+    @property
+    def ca_bundle(self) -> str | None:
+        """Get the CA bundle that TLS certificates are verified with.
+
+        Returns:
+            Path of the file or directory of the certificate authorities;
+            `None` for the public ones.
+        """
+        return self._ca_bundle
 
     @property
     def session(self) -> requests.Session:
@@ -972,7 +1029,8 @@ class GuardedClient:
             DeadlineExceeded: The deadline passed before sending.
             RequestNotSent: The request certainly did not reach the server,
                 as no byte of it was sent (e.g.,
-                :py:class:`AddressNotAllowed`, TLS handshake failed, connection
+                :py:class:`AddressNotAllowed`, TLS handshake failed, the CA
+                bundle doesn't exist or holds no certificates, connection
                 lost while connecting).
             RequestMaybeSent: The server may have received the request, as
                 sending it started (e.g., read timeout, TLS error or connection
@@ -987,6 +1045,12 @@ class GuardedClient:
             raise InvalidRequestURL("Invalid HTTP method")
         if json is not None:
             _check_json_body(json, url)
+        # Never `False`; a path only if set (an empty one would mean `False`)
+        verify: str | bool = self._ca_bundle or True
+        if isinstance(verify, str) and not os.path.exists(verify):
+            raise RequestNotSent(
+                f"CA bundle not found: {_redact(verify)}", reason="tls_error"
+            )
         remaining = self.remaining()
         if remaining <= 0:
             raise DeadlineExceeded(f"No time left for {_redact(url)}")
@@ -1004,11 +1068,12 @@ class GuardedClient:
                     timeout=(min(remaining, MAX_CONNECT_TIMEOUT), remaining),
                     allow_redirects=False,
                     stream=True,
-                    verify=True,
+                    verify=verify,
                 )
             except (AddressNotAllowed, DeadlineExceeded):
                 raise
-            except (requests.RequestException, ValueError) as exc:
+            # `OSError` of requests itself: a CA bundle removed since the check
+            except (requests.RequestException, ValueError, OSError) as exc:
                 raise self._error(exc, url, guard) from exc
             try:
                 content = self._read(response, url, guard)
@@ -1026,7 +1091,7 @@ class GuardedClient:
         """Describe an error of sending a request.
 
         Args:
-            exc: Error (of requests, or a `ValueError`).
+            exc: Error (of requests, a `ValueError`, or an `OSError`).
             url: URL of the request.
             guard: Guard of the request.
 
@@ -1034,27 +1099,54 @@ class GuardedClient:
             In this order: if the deadline passed,
             :py:class:`RequestMaybeSent` if sending started, otherwise
             :py:class:`DeadlineExceeded`; if sending did not start,
-            :py:class:`InvalidRequest` or :py:class:`InvalidRequestURL` for
-            invalid requests, otherwise :py:class:`RequestNotSent` (cf.
-            :py:func:`_classify`); if sending started,
-            :py:class:`RequestMaybeSent`.
+            :py:class:`RequestNotSent` (`tls_error`) for an `OSError` that
+            is no error of requests (which requests raises for a CA bundle
+            that doesn't exist), :py:class:`InvalidRequest` or
+            :py:class:`InvalidRequestURL` for invalid requests, otherwise
+            :py:class:`RequestNotSent` (cf. :py:func:`_classify`); if
+            sending started, :py:class:`RequestMaybeSent`.
         """
         if guard.expired:
             if guard.sent:
                 return cls._expired(url)
             return DeadlineExceeded(f"{_redact(url)}: deadline passed before sending")
         if not guard.sent:
-            # Names and values of headers that can't be encoded when sending,
-            # and credentials (also of the URL) when building `Authorization`
-            if isinstance(exc, requests.exceptions.InvalidHeader | UnicodeEncodeError):
-                return InvalidRequest(
-                    f"Invalid header for {_redact(url)}", reason="invalid_header"
-                )
-            if isinstance(exc, ValueError):  # also `InvalidURL`
-                return InvalidRequestURL(f"Invalid URL: {type(exc).__name__}")
+            error = cls._not_sent(exc, url)
+            if error is not None:
+                return error
         if isinstance(exc, requests.RequestException):
             return _classify(exc, url, sent=guard.sent)
         return RequestMaybeSent(f"{_redact(url)} failed: {type(exc).__name__}")
+
+    @staticmethod
+    def _not_sent(exc: Exception, url: str) -> RequestNotSent | None:
+        """Describe an error before sending that is no error of a connection.
+
+        Args:
+            exc: Error (of requests, a `ValueError`, or an `OSError`).
+            url: URL of the request.
+
+        Returns:
+            :py:class:`RequestNotSent` (`tls_error`) for an `OSError` that is
+            no error of requests (which requests raises for a CA bundle that
+            doesn't exist), :py:class:`InvalidRequest` or
+            :py:class:`InvalidRequestURL` for invalid requests, otherwise
+            `None`.
+        """
+        if isinstance(exc, OSError) and not isinstance(exc, requests.RequestException):
+            return RequestNotSent(
+                f"TLS error for {_redact(url)}: {type(exc).__name__}",
+                reason="tls_error",
+            )
+        # Names and values of headers that can't be encoded when sending,
+        # and credentials (also of the URL) when building `Authorization`
+        if isinstance(exc, requests.exceptions.InvalidHeader | UnicodeEncodeError):
+            return InvalidRequest(
+                f"Invalid header for {_redact(url)}", reason="invalid_header"
+            )
+        if isinstance(exc, ValueError):  # also `InvalidURL`
+            return InvalidRequestURL(f"Invalid URL: {type(exc).__name__}")
+        return None
 
     @staticmethod
     def _expired(url: str) -> RequestMaybeSent:
