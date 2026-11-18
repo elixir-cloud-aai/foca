@@ -47,6 +47,29 @@ API_TYPES: dict[str, ApiType] = {
 _API_PATH = re.compile(r"(?:/[A-Za-z0-9._~-]+)+")
 
 
+def _check_path(value: str) -> None:
+    """Check an API path of a backend.
+
+    Args:
+        value: API path, with or without trailing slash.
+
+    Raises:
+        ValueError: The path is neither empty nor absolute, has characters
+            other than unreserved ones (e.g., a query), or empty segments or
+            segments `.` or `..`.
+    """
+    if not value:
+        return
+    if not value.startswith("/"):
+        raise ValueError("API path must be absolute")
+    path = value.removesuffix("/")
+    if path and (not _API_PATH.fullmatch(path) or {".", ".."} & set(path.split("/"))):
+        raise ValueError(
+            "API path must have unreserved characters only, and no empty"
+            " segments or segments `.` or `..`"
+        )
+
+
 class _Model(BaseModel):
     """Base of the models: unknown keys are errors, without their values."""
 
@@ -157,30 +180,25 @@ class ServiceEntry(_Model):
                 characters other than unreserved ones (e.g., a query), or
                 empty segments or segments `.` or `..`.
         """
-        if not value:
-            return value
-        if not value.startswith("/"):
-            raise ValueError("API path must be absolute")
-        path = value.removesuffix("/")
-        if path and (
-            not _API_PATH.fullmatch(path) or {".", ".."} & set(path.split("/"))
-        ):
-            raise ValueError(
-                "API path must have unreserved characters only, and no empty"
-                " segments or segments `.` or `..`"
-            )
+        if value is not None:
+            _check_path(value)
         return value
 
     @model_validator(mode="after")
     def _check(self) -> Self:
         """Normalize the URL, default the identifier and API path, check auth.
 
+        The API path is checked again, as defaults of subclasses (e.g.,
+        apps' own) are not validated by field validators.
+
         Returns:
             The entry.
 
         Raises:
             ValueError: The URL is invalid, has user info or another scheme,
-                or `basic` is missing for `auth: basic` or set otherwise.
+                the type has no API type and the entry no API path, the API
+                path is invalid, or `basic` is missing for `auth: basic` or
+                set otherwise.
         """
         self.url = normalize_url(
             self.url, schemes=self.url_schemes, name="Backend URLs"
@@ -192,6 +210,7 @@ class ServiceEntry(_Model):
             if self.type not in paths:
                 raise ValueError(f"No API type for backend type {self.type!r}")
             self.api_path = paths[self.type]
+        _check_path(self.api_path)
         self.api_path = self.api_path.removesuffix("/")
         if (self.auth == "basic") != (self.basic is not None):
             raise ValueError(

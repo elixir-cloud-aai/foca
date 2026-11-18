@@ -251,6 +251,14 @@ def test_api_path_of_subclasses() -> None:
     with pytest.raises(ValidationError, match="API path"):
         AppEntry(type="ga4gh-tes", url="https://a.example.org", api_path="x")
 
+    class InvalidDefault(ServiceEntry):
+        """Entry with an invalid API path default."""
+
+        api_path: str = "/a/../b"
+
+    with pytest.raises(ValidationError, match="API path"):
+        InvalidDefault(type="ga4gh-tes", url="https://a.example.org")
+
 
 def test_api_path_without_api_type() -> None:
     """Entries of types without an API type need an API path of their own."""
