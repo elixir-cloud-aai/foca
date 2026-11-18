@@ -391,10 +391,12 @@ the Gateway API, or to another ingress controller.
     Rendering fails if the annotation is below the app's limit, as
     ingress-nginx would answer requests between the two with its own `413`
     page instead of the app's problem details; the error names the value to
-    set. The annotation takes nginx's sizes: bytes,
-    or with the suffix `k`, `m` or `g` (either case), here with at most 9
-    digits and no leading zeros; `0` disables the limit. Without the
-    annotation, or if the app sets no limit, nothing is checked. App charts
+    set. The annotation takes nginx's sizes: bytes, or with the suffix `k`,
+    `m` or `g` (either case), here with at most 9 digits and no leading
+    zeros; `0` disables the limit. Other values fail to render, also if the
+    app sets no limit (nginx would refuse them, too). Without the
+    annotation, nothing is checked; if the app sets no limit, only the
+    format is. App charts
     whose limit exceeds 1 MiB may set the annotation as a default in their
     `values.yaml`, as the library chart sets none.
 

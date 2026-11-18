@@ -71,7 +71,8 @@ is below the app's limit (`config.server.max_content_length`, see
 between with its own `413` page instead of the app's problem details. Sizes
 are those of nginx: bytes, or with the suffix `k`, `m` or `g` (either case),
 here with at most 9 digits and no leading zeros (so that they are parsed as
-decimals and do not overflow); `0` disables the limit. Checked only if the
+decimals and do not overflow); `0` disables the limit. Other values fail,
+also without an app limit, which only skips the comparison. Checked only if the
 Ingress has the annotation, so the chart stays neutral to ingress
 controllers and sets no default: other controllers ignore the annotation,
 and without it, the chart can't know the controller's limit (app charts
