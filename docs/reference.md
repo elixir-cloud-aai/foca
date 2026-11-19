@@ -200,6 +200,9 @@ configuration models, see [Configuration](configuration/index.md).
         - ApiType
         - RegistryError
         - BasicCredentialsConfig
+        - ClientCredentialsConfig
+        - check_client_credentials
+        - uses_tokens
         - LocationConfig
         - RegistryCache
         - select_services

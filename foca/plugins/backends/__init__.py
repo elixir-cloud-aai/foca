@@ -22,6 +22,9 @@ backends:
     url: https://tes-fallback.example.org
     auth: basic
     basic: {username_env: TES_FALLBACK_USER, password_env: TES_FALLBACK_PASSWORD}
+client_credentials:                # the gateway's client, next to the list
+  issuer: https://login.example.org/
+  audience_parameter: resource     # optional: a token per backend
 ```
 
 :py:class:`BackendList` expands the entries, in order, into the candidates
@@ -48,7 +51,15 @@ being. Verifications that can be read apply in any case: backends that they
 no longer list, with the same URL and API type, are not kept. Before the
 first good read, and after `max_stale`, a registry yields no candidates.
 
-Plain pydantic models and the guarded HTTP client; no web framework.
+Gateways authenticate at their backends with credentials of their own, as
+named by `auth` (cf. :py:mod:`foca.plugins.backends.credentials`): access
+tokens of the gateway's client (:py:class:`ClientCredentialsConfig`,
+:py:class:`TokenProvider`), HTTP Basic credentials from the environment, or
+none; :py:func:`get_credentials` resolves them per request, and
+:py:func:`check_backends` checks them on startup.
+
+Plain pydantic models, `requests` and the guarded HTTP client; no web
+framework.
 """
 
 from foca.plugins.backends.config import (
@@ -60,6 +71,21 @@ from foca.plugins.backends.config import (
     LocationConfig,
     RegistryEntry,
     ServiceEntry,
+)
+from foca.plugins.backends.credentials import (
+    NO_CREDENTIALS,
+    BackendSession,
+    ClientCredentialsConfig,
+    Credentials,
+    CredentialsError,
+    TokenKey,
+    TokenProvider,
+    check_backends,
+    check_client_credentials,
+    get_credentials,
+    get_env,
+    token_audience,
+    uses_tokens,
 )
 from foca.plugins.backends.lists import BackendList
 from foca.plugins.backends.registry import (
@@ -75,18 +101,31 @@ from foca.plugins.backends.registry import (
 __all__ = [
     "API_TYPES",
     "MIN_REFRESH_INTERVAL",
+    "NO_CREDENTIALS",
     "RETRY_INTERVAL",
     "ApiType",
     "BackendEntry",
     "BackendList",
     "BackendListConfig",
+    "BackendSession",
     "BasicCredentialsConfig",
+    "ClientCredentialsConfig",
+    "Credentials",
+    "CredentialsError",
     "LocationConfig",
     "RegistryCache",
     "RegistryEntry",
     "RegistryError",
     "ServiceEntry",
+    "TokenKey",
+    "TokenProvider",
+    "check_backends",
+    "check_client_credentials",
     "clear_caches",
     "get_cache",
+    "get_credentials",
+    "get_env",
     "select_services",
+    "token_audience",
+    "uses_tokens",
 ]
