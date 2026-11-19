@@ -90,9 +90,10 @@ class BackendList:
         self.public_url = public_url.rstrip("/") if public_url else None
         self._own = _location(self.public_url) if self.public_url else None
 
-    def _is_own(self, url: str) -> bool:
+    def is_own(self, url: str) -> bool:
         """Check whether a URL is at or below the gateway's public URL.
 
+        Such backends are never candidates (cf. :py:meth:`expand`).
         Schemes are ignored: URLs of the same host, effective port and path
         are the gateway's, and so are those with the default port of their
         scheme if the gateway's URL has the default port of its own (e.g.,
@@ -102,7 +103,7 @@ class BackendList:
             url: Normalized URL.
 
         Returns:
-            Whether it is.
+            Whether it is; `False` without public URL.
         """
         if self._own is None:
             return False
@@ -166,7 +167,7 @@ class BackendList:
                     for url in urls
                 ]
             for backend in found:
-                if backend.url in seen or self._is_own(backend.url):
+                if backend.url in seen or self.is_own(backend.url):
                     continue
                 if taken.get(backend.id, backend.url) != backend.url:
                     logger.debug(

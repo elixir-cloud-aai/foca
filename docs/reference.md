@@ -200,6 +200,17 @@ configuration models, see [Configuration](configuration/index.md).
         - ApiType
         - RegistryError
         - BasicCredentialsConfig
+        - ClientCredentialsConfig
+        - check_client_credentials
+        - uses_tokens
+        - TokenProvider
+        - get_credentials
+        - token_audience
+        - Credentials
+        - CredentialsError
+        - NO_CREDENTIALS
+        - BackendSession
+        - check_backends
         - LocationConfig
         - RegistryCache
         - select_services

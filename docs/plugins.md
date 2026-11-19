@@ -179,8 +179,9 @@ as are `Via` headers that would exceed 1024 characters with the gateway's
 entry (`400`). A gateway with neither `plugins.gateway_id` nor
 `server.public_url` can't detect loops, and FOCA logs a warning on startup. Backends at or below the gateway's own public URL are
 never candidates. Credentials of backends are added by the app after the
-`forward` phase, so plugins never see them; the client's own credentials
-are never forwarded by the engine.
+`forward` phase (see [Credentials of backends](#credentials-of-backends)), so
+plugins never see them; the client's own credentials are never forwarded by
+the engine.
 
 ## Backend lists
 
@@ -246,8 +247,8 @@ list of a TES gateway), so that `create_app()` fails on them:
   port and path, any scheme; default ports count as the same) are left
   out. `Backend.auth` names the credentials (registry entries pass theirs to
   their backends).
-- `entry_for(backend)`: the entry behind a candidate, e.g., for the `basic`
-  environment variables, when the app adds credentials after the `forward`
+- `entry_for(backend)`: the entry behind a candidate, e.g., for its
+  credentials (`get_credentials()`), when the app adds them after the `forward`
   phase.
 - `find(url)`: a backend by URL, re-reading the registries (at most every
   10 s) if no candidate has it, e.g., for status polling and cancellation in
@@ -300,6 +301,143 @@ good read: `max_stale` and the times from `snapshots()` still count from the
 last good one, and new or re-verified backends are only added by the next one.
 If `GET /verifications` itself fails or doesn't answer with a list, the whole
 last good list stays.
+
+### Credentials of backends
+
+Gateways authenticate at their backends with credentials of their own,
+never with those of their callers, as `auth` of each entry names them
+(discovered backends get that of their registry entry; plugins may choose
+another by name, `OutboundRequest.auth`). `foca.plugins.backends` resolves
+them, the same way for TES and WES gateways:
+
+- `client_credentials`: an access token of the gateway, from its identity
+  provider with the OAuth 2.0 client credentials grant (RFC 6749,
+  section 4.4);
+- `basic`: HTTP Basic credentials from the environment variables that
+  `basic.username_env` and `basic.password_env` name (a transitional mode,
+  for backends that don't accept tokens yet);
+- `none`: no credentials.
+
+The gateway's client is configured next to its backend list
+(`ClientCredentialsConfig`, e.g., `custom.tes.client_credentials`):
+
+```yaml
+client_credentials:
+  issuer: https://login.example.org/  # token endpoint from its discovery
+  # token_endpoint: https://login.example.org/token  # instead of discovery
+  url_schemes: [https]             # of issuer and token endpoint; tests may add http
+  scope: tes                       # optional
+  audience_parameter: resource     # optional: resource (RFC 8707) or audience
+  auth_method: client_secret_basic # or client_secret_post
+  refresh_before: 60               # seconds before expiry (at most half)
+  timeout: 10
+```
+
+Its client ID and secret come from environment variables that the gateway
+names (e.g., `PROTES_CLIENT_ID` and `PROTES_CLIENT_SECRET`), never from the
+config. As for other secrets of FOCA, `<name>_FILE` may name a file with the
+value instead (e.g., a mounted Secret); so may the variables of `basic`.
+
+With `audience_parameter`, each backend gets a token for its own audience,
+which the others don't accept: the `audience` of its entry (e.g., the
+backend's client ID; only with `auth: client_credentials`), or else its URL
+(always for discovered backends). Audiences requested as `resource` must be
+absolute URIs without query and fragment. Without `audience_parameter`, all
+backends get the same token.
+
+`check_backends()` (below) checks the list against the client on startup;
+gateways may also check it in their config model, so that invalid configs
+fail when they are loaded:
+
+```python
+from typing import Self
+
+from pydantic import BaseModel, model_validator
+
+from foca.plugins.backends import (
+    BackendListConfig,
+    ClientCredentialsConfig,
+    check_client_credentials,
+)
+
+
+class Wes(BaseModel):
+    backends: BackendListConfig = BackendListConfig([])
+    client_credentials: ClientCredentialsConfig = ClientCredentialsConfig()
+
+    @model_validator(mode="after")
+    def _check_credentials(self) -> Self:
+        check_client_credentials(self.backends, self.client_credentials)
+        return self
+```
+
+Each gateway creates one `TokenProvider` per process, with the names of its
+variables, and resolves the credentials of each request (so that
+long-running jobs, e.g., Celery tasks, get fresh tokens):
+
+```python
+from foca.plugins.backends import BackendSession, TokenProvider, get_credentials
+
+token_provider = TokenProvider("PROWES_CLIENT_ID", "PROWES_CLIENT_SECRET")
+
+credentials = get_credentials(
+    backend,
+    backend_list.entry_for(backend),
+    conf.client_credentials,
+    token_provider,
+    auth=outbound.auth,  # None: the backend's own
+)
+with BackendSession() as session:
+    session.get(url, auth=credentials, allow_redirects=False, timeout=15)
+# other clients (e.g., GuardedClient): apply them to the request's headers,
+# which also removes an `Authorization` header there for `auth: none`
+credentials.apply(headers)
+```
+
+Tokens are cached per process, token endpoint, client, scope and audience,
+and fetched anew `refresh_before` seconds before they expire (at most half
+their lifetime before; tokens without `expires_in` count as valid for 60
+seconds; at most 24 hours). Each token is fetched by one thread at a time,
+and each discovery document read by one, without holding a lock. While a
+token is fetched, or for 5 seconds after its fetch failed, a cached token
+that hasn't expired yet is used; without one, callers wait for the fetch (at
+most three times `timeout`), or get the error of the failed one (so that an
+unreachable identity provider doesn't hold up each request in turn).
+Forked processes (e.g., workers) start without fetches in progress. The
+client secret is read for each fetch, so cached tokens stay usable while it
+is unavailable; refresh margins are those of the calling client.
+
+Requests to the identity provider aren't redirected, so the client secret
+goes to the token endpoint only; the discovery document is read without
+credentials, its `issuer` must be the configured one, and a discovered token
+endpoint must have a scheme of the calling client's `url_schemes`. URLs of
+the identity provider must not have user info, queries or fragments. The
+requests use the proxies and CA certificates of the environment (e.g.,
+`REQUESTS_CA_BUNDLE`), but no `.netrc`.
+
+The credentials (`Credentials`, a `requests` auth object) replace any
+`Authorization` header of the request, also with `auth: none`, so that a
+header copied from the caller never reaches a backend, and keep `requests`
+from taking credentials from a `.netrc` file; `BackendSession` takes none
+after redirects either, drops the credentials on redirects to other hosts,
+and keeps no cookies, which backends of a shared parent domain could
+otherwise share. Clients other than `requests` call
+`credentials.apply(headers)` on the request's headers (not merge
+`credentials.headers`, which is empty for `auth: none`). Their representation, and the messages of `CredentialsError` (no
+token, variable not set, unknown credentials), leave out tokens and
+secrets.
+
+On startup, gateways call `check_backends(backends, client, token_provider,
+api="tes", public_url=..., key="custom.tes.backends")`. It refuses to start
+(`RuntimeError`) if environment variables are missing (the client's, if a
+backend has or discovered backends get `auth: client_credentials`, and those
+of each `basic` entry), if the list doesn't fit the client or the API, if
+registries are listed without `server.public_url`, or if configured
+backends are at or below it, or if HTTP Basic credentials are invalid
+(e.g., a user name with a colon). It warns about backends without token
+authentication (`basic` and `none`), registries whose backends get no
+tokens or may have private addresses, and `http` URLs, and logs which
+backends get the gateway's tokens (URLs only).
 
 ## Default routing
 

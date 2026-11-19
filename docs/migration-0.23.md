@@ -17,7 +17,9 @@ and deployments need to change only if:
   shape](#plugins-get-wes-runs-in-a-defined-shape).
 
 WES gateways may also drop workarounds for [backend lists, which now know
-WES](#backend-lists-know-wes).
+WES](#backend-lists-know-wes), and gateways their own token clients, as
+[FOCA resolves the credentials of
+backends](#foca-resolves-the-credentials-of-backends).
 
 ## Subjects are always namespaced by issuer
 
@@ -230,3 +232,24 @@ can drop their own registration of the WES API type, subclasses of
 `ServiceEntry` that only change its `type` or add `api_path`, and
 subclasses of `BackendList` that bypass its validation, and pass
 `api="wes"` instead.
+
+## FOCA resolves the credentials of backends
+
+FOCA now resolves the [credentials of
+backends](plugins.md#credentials-of-backends) that `auth` of backend lists
+names, for TES and WES gateways alike: `ClientCredentialsConfig` for the
+gateway's client at its identity provider (next to the backend list, e.g.,
+`custom.wes.client_credentials`), `TokenProvider` for its access tokens
+(client credentials grant, cached per process), `get_credentials()` for the
+credentials of each request, and `check_backends()` for the startup checks.
+`ServiceEntry` has an optional `audience`, for gateways that request a
+token per backend (`audience_parameter`); it needs `auth:
+client_credentials`.
+
+Nothing needs to change. Gateways with token clients of their own (e.g.,
+proTES's `TokenProvider` and `check_backends`) can switch to FOCA's: move
+the URL schemes of the identity provider into `client_credentials`
+(`client_credentials.url_schemes`), create a `TokenProvider` with the names
+of the variables of the client ID and secret, and catch `CredentialsError`
+where they caught their own error. Subclasses of `ServiceEntry` that add
+`audience` themselves keep working, but FOCA now checks it too.

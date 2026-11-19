@@ -128,6 +128,11 @@ class ServiceEntry(_Model):
             environment (`basic`, cf. `basic`), or none (`none`).
         basic: Environment variables with the HTTP Basic credentials; set
             if, and only if, `auth` is `basic`.
+        audience: Audience of the gateway's access tokens for the backend
+            (e.g., its client ID at the identity provider), requested with
+            `audience_parameter` of the gateway's client
+            (:py:class:`ClientCredentialsConfig`); by default, the URL of the
+            backend. Only with `auth: client_credentials`.
         labels: Labels, e.g., `{"region": "eu-north"}`.
         location: Location, e.g., for distance routing.
         api_path: Path of the API, relative to `url`, for backends that
@@ -143,6 +148,7 @@ class ServiceEntry(_Model):
         id: Identifier of the backend.
         auth: Credentials for the backend.
         basic: Environment variables with HTTP Basic credentials, if any.
+        audience: Audience of the gateway's access tokens, if not the URL.
         labels: Labels.
         location: Location, if any.
         api_path: Path of the API, relative to `url`, without trailing
@@ -156,6 +162,7 @@ class ServiceEntry(_Model):
     id: str = Field(default="", min_length=1)
     auth: Literal["client_credentials", "basic", "none"] = "client_credentials"
     basic: BasicCredentialsConfig | None = None
+    audience: str | None = Field(default=None, min_length=1)
     labels: dict[str, str] = {}
     location: LocationConfig | None = None
     # the API path of the entry type by default (set when validated)
@@ -218,6 +225,17 @@ class ServiceEntry(_Model):
                 f"Backend {self.id!r}: `basic` is needed with, and only with,"
                 " `auth: basic`"
             )
+        audience = self.audience
+        if audience is not None:
+            if self.auth != "client_credentials":
+                raise ValueError(
+                    f"Backend {self.id!r}: `audience` needs `auth: client_credentials`"
+                )
+            if audience != audience.strip():
+                raise ValueError(
+                    f"Backend {self.id!r}: `audience` must not have surrounding"
+                    " whitespace"
+                )
         return self
 
     def backend(self) -> Backend:
