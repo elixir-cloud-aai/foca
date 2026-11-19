@@ -622,6 +622,9 @@ Keep the key secret of the store out of them: see `pluginStore`.
 `tes.backends` is rendered into `custom.tes.backends`, with the keys of its entries
 and of their `basic` in camelCase in the values (e.g., `urlSchemes`,
 `refreshInterval`, `basic.usernameEnv`; those of `labels` and `location` are kept).
+`registryCaBundle` is a path in the app's container: the library chart mounts no CA
+bundles, so the app chart (or the deployment) must mount the bundle there, e.g., from a
+ConfigMap.
 The public URL of the app
 (`server.public_url`) is set to `publicUrl`, or else to `https://<hostName>/`.
 Rendering fails if `config.custom.tes.backends` is set too, if `config.custom.tes` is no
