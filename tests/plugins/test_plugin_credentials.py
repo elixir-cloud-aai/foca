@@ -578,6 +578,19 @@ def test_token_failures_expire(
     assert not provider._failures
 
 
+def test_discovery_failures_expire(
+    idp: FakeIdp, clock: Clock, provider: TokenProvider
+) -> None:
+    """Failed discoveries are removed once they may be tried again."""
+    idp.discovery = None
+    with pytest.raises(CredentialsError):
+        provider.get_token(client())
+    clock.now += module.FAILURE_RETRY
+    with pytest.raises(CredentialsError):
+        provider.get_token(client(issuer="https://other.example.org/"))
+    assert list(provider._discovery_failures) == ["https://other.example.org/"]
+
+
 def test_token_failure_not_retried_at_once(
     idp: FakeIdp, clock: Clock, provider: TokenProvider
 ) -> None:
@@ -612,6 +625,8 @@ def test_token_failure_not_retried_at_once(
         ("3e2", 60),
         ("", 60),
         (300.5, 300.5),
+        (10**400, 86400),
+        (-(10**400), 0),
     ],
 )
 def test_token_lifetime_bounded(expires_in: Any, lifetime: float) -> None:
@@ -938,7 +953,7 @@ def test_discovery_invalid(
 def test_discovery_without_lock(
     idp: FakeIdp, provider: TokenProvider, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Slow discovery holds up neither cached tokens nor other issuers.
+    """Slow discovery doesn't hold up cached tokens of other endpoints.
 
     Threads that need the same discovery document wait for the same request.
     """
@@ -975,6 +990,97 @@ def test_discovery_without_lock(
     assert len(idp.discoveries) == 1
     with pytest.raises(CredentialsError, match="unavailable"):
         provider.get_token(client(issuer=other))
+
+
+def test_wait_deadline(idp: FakeIdp, clock: Clock, provider: TokenProvider) -> None:
+    """Threads wait for another thread's fetch until a deadline only."""
+    conf = client()
+    endpoint = provider._get_token_endpoint(conf)
+    key = module.TokenKey(endpoint, CLIENT_ID, None, None, None)
+    provider._fetching.add(key)
+    original = provider._fetched.wait
+
+    def tick(timeout: float | None = None) -> bool:
+        """Let the deadline pass instead of waiting."""
+        assert timeout == pytest.approx(module.WAIT_FACTOR * conf.timeout)
+        clock.now += timeout or 0
+        return False
+
+    provider._fetched.wait = tick  # type: ignore[method-assign]
+    with pytest.raises(CredentialsError, match="still being fetched"):
+        provider.get_token(conf)
+    provider._fetched.wait = original  # type: ignore[method-assign]
+    provider._fetching.discard(key)
+    provider._discovering.add(ISSUER)
+    provider._token_endpoints.clear()
+    provider._fetched.wait = tick  # type: ignore[method-assign]
+    with pytest.raises(CredentialsError, match=r"Discovery document .* still being"):
+        provider.get_token(conf)
+
+
+def test_clear_during_fetch(idp: FakeIdp, provider: TokenProvider) -> None:
+    """Fetches in progress when the cache is cleared store nothing."""
+
+    def clear(kwargs: dict[str, Any]) -> None:
+        """Clear the cache while the token is fetched."""
+        provider.clear()
+
+    idp.hook = clear
+    assert provider.get_token(client()) == "token-1"
+    assert not provider._tokens
+    idp.hook = None
+    idp.token_status = 503
+
+    def discover_and_clear(issuer: str, conf: ClientCredentialsConfig) -> str:
+        """Clear the cache while the discovery document is read."""
+        provider.clear()
+        return TOKEN_ENDPOINT
+
+    provider._discover = discover_and_clear  # type: ignore[method-assign,assignment]
+    with pytest.raises(CredentialsError, match="status 503"):
+        provider.get_token(client())
+    assert not provider._token_endpoints
+    assert list(provider._failures)
+
+
+def test_send_os_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Plain `OSError`s of requests (e.g., a missing CA bundle) are request errors."""
+
+    def fail(*args: Any, **kwargs: Any) -> Any:
+        """Fail as requests does for a missing CA bundle."""
+        raise OSError("Could not find a suitable TLS CA certificate bundle")
+
+    monkeypatch.setattr(BackendSession, "request", fail)
+    with pytest.raises(requests.ConnectionError, match="OSError"):
+        TokenProvider._send("GET", TOKEN_ENDPOINT)
+
+    def fail_requests(*args: Any, **kwargs: Any) -> Any:
+        """Fail as requests does."""
+        raise requests.Timeout("slow")
+
+    monkeypatch.setattr(BackendSession, "request", fail_requests)
+    with pytest.raises(requests.Timeout):
+        TokenProvider._send("GET", TOKEN_ENDPOINT)
+
+
+def test_fork_resets_locks(idp: FakeIdp, provider: TokenProvider) -> None:
+    """Forked processes get new locks and no fetches in progress."""
+    lock = provider._lock
+    provider._fetching.add(module.TokenKey(TOKEN_ENDPOINT, "c", None, None, None))
+    provider._discovering.add(ISSUER)
+    module._reset_after_fork()
+    assert provider._lock is not lock
+    assert not provider._fetching
+    assert not provider._discovering
+    assert provider.get_token(client()) == "token-1"
+
+
+def test_is_own(backend_list: BackendList) -> None:
+    """Without public URL, no URL is the gateway's."""
+    assert not backend_list.is_own(BACKEND_URL)
+    gateway = BackendList([], api="tes", public_url="https://tes.example.org/gw")
+    assert gateway.is_own("https://tes.example.org/gw/x")
+    assert not gateway.is_own(BACKEND_URL)
 
 
 def test_discovery_unexpected_error_released(

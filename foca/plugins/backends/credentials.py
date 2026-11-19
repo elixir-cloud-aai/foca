@@ -38,9 +38,11 @@ Plain `requests`; no web framework.
 import base64
 import logging
 import math
+import os
 import re
 import threading
 import time
+import weakref
 from collections.abc import Collection, Iterable, Mapping, MutableMapping
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal, NamedTuple, Self
@@ -74,6 +76,11 @@ MAX_TOKEN_LIFETIME = 86400
 """Maximum lifetime (in seconds) of cached tokens, whatever `expires_in` says."""
 
 FAILURE_RETRY = 5.0
+
+WAIT_FACTOR = 3
+"""Threads wait for the fetch of another thread for at most this many times
+the timeout of the client (`ClientCredentialsConfig.timeout`), as that
+timeout bounds each operation of a request rather than all of it."""
 """Seconds that a failed token fetch or discovery is not tried again: calls
 meanwhile get the same error (or a cached token that is still valid)."""
 
@@ -94,13 +101,12 @@ def _lifetime(expires_in: object) -> float:
     """
     if isinstance(expires_in, str) and _DIGITS.fullmatch(expires_in):
         expires_in = int(expires_in)
-    if (
-        not isinstance(expires_in, int | float)
-        or isinstance(expires_in, bool)
-        or not math.isfinite(expires_in)
-    ):
+    if isinstance(expires_in, bool) or not isinstance(expires_in, int | float):
         return DEFAULT_TOKEN_LIFETIME
-    return min(max(float(expires_in), 0.0), MAX_TOKEN_LIFETIME)
+    if isinstance(expires_in, float) and not math.isfinite(expires_in):
+        return DEFAULT_TOKEN_LIFETIME
+    # bounded before converting: integers of JSON may exceed floats
+    return float(min(max(expires_in, 0), MAX_TOKEN_LIFETIME))
 
 
 # Visible ASCII characters but space: access tokens (RFC 6749, appendix A.12)
@@ -646,18 +652,29 @@ class TokenProvider:
             )
         self.client_id_env = client_id_env
         self.client_secret_env = client_secret_env
+        self._tokens: dict[TokenKey, _Token] = {}
+        # failed fetches: until when, and the message
+        self._failures: dict[TokenKey, tuple[float, str]] = {}
+        self._token_endpoints: dict[str, str] = {}
+        self._discovery_failures: dict[str, tuple[float, str]] = {}
+        # changed by `clear()`, so that fetches in progress then don't store
+        self._generation = 0
+        self._reset_lock()
+        _providers.add(self)
+
+    def _reset_lock(self) -> None:
+        """Create the lock, and forget the fetches in progress.
+
+        Also in forked processes (cf. `_reset_after_fork`), whose copies of
+        the lock may be held, and of fetches that no thread of theirs ends.
+        """
         # guards the caches and the fetches in progress; never held during
         # requests to the identity provider
         self._lock = threading.Lock()
         # notified whenever a fetch ends
         self._fetched = threading.Condition(self._lock)
-        self._tokens: dict[TokenKey, _Token] = {}
         self._fetching: set[TokenKey] = set()
-        # failed fetches: until when, and the message
-        self._failures: dict[TokenKey, tuple[float, str]] = {}
-        self._token_endpoints: dict[str, str] = {}
         self._discovering: set[str] = set()
-        self._discovery_failures: dict[str, tuple[float, str]] = {}
 
     def __repr__(self) -> str:
         """Represent the provider by its environment variables.
@@ -682,10 +699,28 @@ class TokenProvider:
     def clear(self) -> None:
         """Remove all cached tokens, token endpoints and failures."""
         with self._lock:
+            self._generation += 1
             self._tokens.clear()
             self._failures.clear()
             self._token_endpoints.clear()
             self._discovery_failures.clear()
+
+    def _wait(self, deadline: float, what: str) -> None:
+        """Wait for the fetch of another thread, until a deadline.
+
+        Must be called with the lock held.
+
+        Args:
+            deadline: `time.monotonic()` value until which to wait.
+            what: What is fetched, for the error message.
+
+        Raises:
+            CredentialsError: The deadline passed.
+        """
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise CredentialsError(f"{what} still being fetched by another thread")
+        self._fetched.wait(remaining)
 
     def get_token(
         self, client: ClientCredentialsConfig, audience: str | None = None
@@ -724,6 +759,7 @@ class TokenProvider:
         key = TokenKey(
             endpoint, client_id, client.scope, client.audience_parameter, audience
         )
+        deadline = time.monotonic() + WAIT_FACTOR * client.timeout
         with self._fetched:
             while True:
                 token = self._tokens.get(key)
@@ -742,7 +778,8 @@ class TokenProvider:
                 if token is not None and usable:
                     # being refreshed by another thread: use it meanwhile
                     return token.value
-                self._fetched.wait()
+                self._wait(deadline, f"Access token from {endpoint}")
+            generation = self._generation
         new: _Token | None = None
         error: CredentialsError | None = None
         try:
@@ -760,7 +797,9 @@ class TokenProvider:
             with self._fetched:
                 now = time.monotonic()
                 self._fetching.discard(key)
-                if new is not None:
+                if generation != self._generation:
+                    pass  # cleared meanwhile: store nothing
+                elif new is not None:
                     for stale in [
                         k for k, v in self._tokens.items() if now >= v.expires_at
                     ]:
@@ -793,9 +832,19 @@ class TokenProvider:
 
         Returns:
             The response.
+
+        Raises:
+            requests.RequestException: The request failed, also for errors
+                that `requests` raises as plain `OSError` (e.g., a CA bundle
+                of the environment that doesn't exist).
         """
-        with BackendSession() as session:
-            return session.request(method, url, allow_redirects=False, **kwargs)
+        try:
+            with BackendSession() as session:
+                return session.request(method, url, allow_redirects=False, **kwargs)
+        except requests.RequestException:
+            raise
+        except OSError as exc:
+            raise requests.ConnectionError(type(exc).__name__) from exc
 
     def _get_token_endpoint(self, client: ClientCredentialsConfig) -> str:
         """Get the token endpoint, from the config or the issuer's discovery.
@@ -823,6 +872,7 @@ class TokenProvider:
             raise CredentialsError(
                 "No issuer or token endpoint of the gateway's client"
             )
+        deadline = time.monotonic() + WAIT_FACTOR * client.timeout
         with self._fetched:
             while True:
                 cached = self._token_endpoints.get(issuer)
@@ -834,7 +884,8 @@ class TokenProvider:
                         raise CredentialsError(failure[1])
                     self._discovering.add(issuer)
                     break
-                self._fetched.wait()
+                self._wait(deadline, f"Discovery document of {issuer!r}")
+            generation = self._generation
         endpoint: str | None = None
         error: CredentialsError | None = None
         try:
@@ -844,7 +895,9 @@ class TokenProvider:
         finally:
             with self._fetched:
                 self._discovering.discard(issuer)
-                if endpoint is not None:
+                if generation != self._generation:
+                    pass  # cleared meanwhile: store nothing
+                elif endpoint is not None:
                     self._token_endpoints[issuer] = endpoint
                     self._discovery_failures.pop(issuer, None)
                 elif error is not None:
@@ -852,6 +905,11 @@ class TokenProvider:
                         time.monotonic() + FAILURE_RETRY,
                         str(error),
                     )
+                now = time.monotonic()
+                for gone in [
+                    k for k, v in self._discovery_failures.items() if now >= v[0]
+                ]:
+                    del self._discovery_failures[gone]
                 self._fetched.notify_all()
         if endpoint is None:
             raise error  # type: ignore[misc]  # set if no endpoint was found
@@ -994,6 +1052,24 @@ class TokenProvider:
             refresh_at=start + lifetime - margin,
             expires_at=start + lifetime,
         )
+
+
+# Providers of this process, for `_reset_after_fork`
+_providers: "weakref.WeakSet[TokenProvider]" = weakref.WeakSet()
+
+
+def _reset_after_fork() -> None:
+    """Give the providers of a forked process new locks.
+
+    The parent's locks may have been held by its other threads when it
+    forked (e.g., Gunicorn or Celery workers of an app that created a
+    provider before), and their fetches are never ended in the child.
+    """
+    for provider in list(_providers):
+        provider._reset_lock()
+
+
+os.register_at_fork(after_in_child=_reset_after_fork)
 
 
 def token_audience(
