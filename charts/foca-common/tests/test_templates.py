@@ -3401,6 +3401,7 @@ BACKENDS = [
         "maxStale": 2,
         "allowPrivateAddresses": False,
         "registryAllowPrivateAddresses": False,
+        "registryCaBundle": "/etc/ssl/registry-ca.pem",
     },
 ]
 
@@ -3430,6 +3431,7 @@ def test_backends_rendered(chart_with_settings: Callable[[str], Path]) -> None:
             "max_stale": 2,
             "allow_private_addresses": False,
             "registry_allow_private_addresses": False,
+            "registry_ca_bundle": "/etc/ssl/registry-ca.pem",
         },
     ]
 

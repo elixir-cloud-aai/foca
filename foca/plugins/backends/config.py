@@ -1,5 +1,6 @@
 """Configuration models of backend lists (cf. :py:mod:`foca.plugins.backends`)."""
 
+import os
 import re
 from dataclasses import dataclass
 from typing import Annotated, Literal, Self
@@ -266,6 +267,13 @@ class RegistryEntry(_Model):
         registry_allow_private_addresses: Whether the registry's own host
             may have addresses that are not public (e.g., a registry in the
             same cluster).
+        registry_ca_bundle: Path of a file (PEM) or directory (hashed
+            names, as by `openssl rehash`) of the certificate authorities
+            that the registry's TLS certificate is verified with, instead of
+            the public ones (e.g., for a registry with a certificate of a
+            private certificate authority); relative paths are resolved
+            against the working directory when validated. Verification
+            can't be turned off.
         labels: Labels of the discovered backends.
 
     Attributes:
@@ -283,6 +291,8 @@ class RegistryEntry(_Model):
             backends are allowed.
         registry_allow_private_addresses: Whether private addresses of the
             registry are allowed.
+        registry_ca_bundle: Absolute path of the registry's CA bundle, if
+            any.
         labels: Labels of the discovered backends.
     """
 
@@ -301,11 +311,15 @@ class RegistryEntry(_Model):
     auth: Literal["client_credentials", "none"] = "client_credentials"
     allow_private_addresses: bool = False
     registry_allow_private_addresses: bool = False
+    # strict: paths only, never booleans or bytes (no way to turn verification
+    # off), as `GuardedClient` checks again (`foca.utils.http._ca_bundle_path`);
+    # absolute here already, so that the cache key (`get_cache()`) is too
+    registry_ca_bundle: Annotated[str, Field(min_length=1, strict=True)] | None = None
     labels: dict[str, str] = {}
 
     @model_validator(mode="after")
     def _check(self) -> Self:
-        """Normalize the URL, default the identifier, check `max_stale`.
+        """Normalize URL and CA bundle, default the identifier, check `max_stale`.
 
         Returns:
             The entry.
@@ -319,6 +333,9 @@ class RegistryEntry(_Model):
         )
         if not self.id:
             self.id = self.url
+        if self.registry_ca_bundle is not None:
+            # so that later changes of the working directory don't change it
+            self.registry_ca_bundle = os.path.abspath(self.registry_ca_bundle)
         if self.max_stale < self.refresh_interval:
             raise ValueError(
                 f"Registry {self.id!r}: `max_stale` must be at least `refresh_interval`"
