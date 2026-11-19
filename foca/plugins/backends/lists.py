@@ -90,6 +90,19 @@ class BackendList:
         self.public_url = public_url.rstrip("/") if public_url else None
         self._own = _location(self.public_url) if self.public_url else None
 
+    def is_own(self, url: str) -> bool:
+        """Check whether a backend URL is at or below the gateway's public URL.
+
+        Such backends are never candidates (cf. :py:meth:`expand`).
+
+        Args:
+            url: Normalized URL, e.g., of an entry.
+
+        Returns:
+            Whether it is; `False` without public URL.
+        """
+        return self._is_own(url)
+
     def _is_own(self, url: str) -> bool:
         """Check whether a URL is at or below the gateway's public URL.
 

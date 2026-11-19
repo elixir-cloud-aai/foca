@@ -334,17 +334,22 @@ client_credentials:
 ```
 
 Its client ID and secret come from environment variables that the gateway
-names (e.g., `PROTES_CLIENT_ID` and `PROTES_CLIENT_SECRET`; set them from a
-Secret), never from the config. With `audience_parameter`, each backend gets
+names (e.g., `PROTES_CLIENT_ID` and `PROTES_CLIENT_SECRET`), never from the
+config; as for other secrets of FOCA, `<name>_FILE` may name a file with the
+value instead (e.g., a mounted Secret), and so may the variables of `basic`. With `audience_parameter`, each backend gets
 a token for its own audience, which the others don't accept: the
 `audience` of its entry (e.g., the backend's client ID; only with `auth:
 client_credentials`), or else its URL (always for discovered backends);
 audiences requested as `resource` must be absolute URIs without query and
-fragment. Without it, all backends get the same token. Gateways check the
-list against the client in their config model, so that invalid configs fail
-on load:
+fragment. Without it, all backends get the same token. `check_backends()` (below)
+checks the list against the client on startup; gateways may also check it in
+their config model, so that invalid configs fail when they are loaded:
 
 ```python
+from typing import Self
+
+from pydantic import BaseModel, model_validator
+
 from foca.plugins.backends import (
     BackendListConfig,
     ClientCredentialsConfig,
@@ -386,10 +391,14 @@ with BackendSession() as session:
 Tokens are cached per process, token endpoint, client, scope and audience,
 and fetched anew `refresh_before` seconds before they expire (at most half
 their lifetime before; tokens without `expires_in` count as valid for 60
-seconds). Each token is fetched by one thread at a time; other threads wait
-for that fetch, or use the cached token meanwhile, and so do all threads if
-the fetch fails, until it expires. Token requests aren't redirected, so the
-client secret goes to the token endpoint only; the discovery document is
+seconds; at most 24 hours). Each token is fetched by one thread at a time;
+other threads wait for that fetch, or use the cached token meanwhile, and so
+do all threads if the fetch fails, until it expires. After a failure, the
+token (or discovery document) isn't fetched again for 5 seconds: calls
+meanwhile get the same error, or the cached token, so that an unreachable
+identity provider doesn't hold up each request in turn. No lock is held
+while the identity provider is asked. Requests to it aren't redirected, so
+the client secret goes to the token endpoint only; the discovery document is
 read without credentials, and its `issuer` must be the configured one.
 Requests to the identity provider use the proxies and CA certificates of
 the environment (e.g., `REQUESTS_CA_BUNDLE`), but no `.netrc`.

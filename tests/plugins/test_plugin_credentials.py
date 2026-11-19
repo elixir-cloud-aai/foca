@@ -27,7 +27,6 @@ from foca.plugins.backends import (
     check_backends,
     check_client_credentials,
     get_credentials,
-    get_env,
     token_audience,
     uses_tokens,
 )
@@ -356,14 +355,41 @@ def test_check_client_credentials_urn() -> None:
 
 def test_get_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Credentials come from the environment, and must not be empty."""
+    monkeypatch.delenv("SOME_SECRET_FILE", raising=False)
     monkeypatch.setenv("SOME_SECRET", "value")
-    assert get_env("SOME_SECRET") == "value"
+    assert module._get_env("SOME_SECRET") == "value"
     monkeypatch.setenv("SOME_SECRET", "")
-    with pytest.raises(CredentialsError, match="SOME_SECRET is not set"):
-        get_env("SOME_SECRET")
+    with pytest.raises(
+        CredentialsError, match=r"SOME_SECRET \(or SOME_SECRET_FILE\) is not set"
+    ):
+        module._get_env("SOME_SECRET")
     monkeypatch.delenv("SOME_SECRET")
-    with pytest.raises(CredentialsError, match="SOME_SECRET is not set"):
-        get_env("SOME_SECRET")
+    with pytest.raises(
+        CredentialsError, match=r"SOME_SECRET \(or SOME_SECRET_FILE\) is not set"
+    ):
+        module._get_env("SOME_SECRET")
+
+
+def test_get_env_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Credentials may come from a file named by `<name>_FILE`, e.g., a Secret.
+
+    Errors name the variables, never the content of the file.
+    """
+    secret = tmp_path / "secret"
+    secret.write_text("from-file\n")
+    monkeypatch.delenv("SOME_SECRET", raising=False)
+    monkeypatch.setenv("SOME_SECRET_FILE", str(secret))
+    assert module._get_env("SOME_SECRET") == "from-file"
+    assert module._missing_env("SOME_SECRET") == []
+    monkeypatch.setenv("SOME_SECRET", "value")
+    with pytest.raises(CredentialsError, match="must not both be set") as exc_info:
+        module._get_env("SOME_SECRET")
+    assert "from-file" not in str(exc_info.value)
+    assert module._missing_env("SOME_SECRET") == ["SOME_SECRET"]
+    monkeypatch.delenv("SOME_SECRET")
+    monkeypatch.setenv("SOME_SECRET_FILE", str(tmp_path / "missing"))
+    with pytest.raises(CredentialsError, match="could not be read"):
+        module._get_env("SOME_SECRET")
 
 
 # Credentials
@@ -472,14 +498,12 @@ def test_token_discovered(idp: FakeIdp, clock: Clock, provider: TokenProvider) -
     """Tokens are fetched from the issuer's token endpoint, as the client.
 
     The client authenticates with HTTP Basic (RFC 6749, section 2.3.1); the
-    request is not redirected; the discovery document is read without
-    credentials.
+    discovery document is read without credentials.
     """
     assert provider.get_token(client()) == "token-1"
     (request,) = idp.requests
     assert request["data"] == {"grant_type": "client_credentials"}
     assert request["auth"] == ("gateway+client", "s3cret%3A%26")
-    assert request["allow_redirects"] is False
     assert request["timeout"] == 10
     (discovery,) = idp.discoveries
     assert discovery["auth"] is NO_CREDENTIALS
@@ -533,7 +557,76 @@ def test_token_refresh_failed(
     with pytest.raises(CredentialsError, match="status 503"):
         provider.get_token(client())
     idp.token_status = 200
-    assert provider.get_token(client()) == "token-5"
+    # the failure is returned for `FAILURE_RETRY` seconds
+    with pytest.raises(CredentialsError, match="status 503"):
+        provider.get_token(client())
+    clock.now += module.FAILURE_RETRY
+    assert provider.get_token(client()) == "token-4"
+
+
+def test_token_failures_expire(
+    idp: FakeIdp, clock: Clock, provider: TokenProvider
+) -> None:
+    """Failures are removed from the cache once they may be tried again."""
+    conf = client(issuer=ISSUER, audience_parameter="resource")
+    idp.token_status = 503
+    with pytest.raises(CredentialsError):
+        provider.get_token(conf, audience="https://tes1.example.org")
+    clock.now += module.FAILURE_RETRY
+    idp.token_status = 200
+    provider.get_token(conf, audience="https://tes2.example.org")
+    assert not provider._failures
+
+
+def test_token_failure_not_retried_at_once(
+    idp: FakeIdp, clock: Clock, provider: TokenProvider
+) -> None:
+    """Failed fetches aren't tried again for `FAILURE_RETRY` seconds.
+
+    Meanwhile, a cached token that is still valid is used.
+    """
+    idp.token_status = 503
+    for _ in range(3):
+        with pytest.raises(CredentialsError, match="status 503"):
+            provider.get_token(client())
+    assert len(idp.requests) == 1
+    clock.now += module.FAILURE_RETRY
+    idp.token_status = 200
+    assert provider.get_token(client()) == "token-2"
+    # refresh fails: the cached token, without asking again
+    clock.now += 240
+    idp.token_status = 503
+    assert provider.get_token(client()) == "token-2"
+    assert provider.get_token(client()) == "token-2"
+    assert len(idp.requests) == 3
+
+
+@pytest.mark.parametrize(
+    "expires_in, lifetime",
+    [
+        (float("inf"), 60),
+        (float("nan"), 60),
+        (-5, 0),
+        (1e300, 86400),
+        ("300", 300),
+        ("3e2", 60),
+        ("", 60),
+        (300.5, 300.5),
+    ],
+)
+def test_token_lifetime_bounded(expires_in: Any, lifetime: float) -> None:
+    """Lifetimes are finite and bounded; digit strings are seconds too."""
+    assert module._lifetime(expires_in) == lifetime
+
+
+def test_token_lifetime_capped(
+    idp: FakeIdp, clock: Clock, provider: TokenProvider
+) -> None:
+    """Tokens of infinite lifetime are refreshed as if they had none."""
+    idp.token["expires_in"] = float("inf")
+    assert provider.get_token(client()) == "token-1"
+    clock.now += 30
+    assert provider.get_token(client()) == "token-2"
 
 
 def test_token_short_lifetime(
@@ -548,7 +641,7 @@ def test_token_short_lifetime(
     assert provider.get_token(client()) == "token-2"
 
 
-@pytest.mark.parametrize("expires_in", [None, "300", True])
+@pytest.mark.parametrize("expires_in", [None, "300 s", True])
 def test_token_lifetime_unknown(
     idp: FakeIdp, clock: Clock, provider: TokenProvider, expires_in: Any
 ) -> None:
@@ -819,17 +912,102 @@ def test_token_endpoint_unreachable(
     ],
 )
 def test_discovery_invalid(
-    idp: FakeIdp, provider: TokenProvider, discovery: Any, match: str
+    idp: FakeIdp, clock: Clock, provider: TokenProvider, discovery: Any, match: str
 ) -> None:
-    """Invalid discovery documents give no token, and are not cached."""
+    """Invalid discovery documents give no token, and are not cached.
+
+    They are read again after `FAILURE_RETRY` seconds.
+    """
     idp.discovery = discovery
     with pytest.raises(CredentialsError, match=match):
         provider.get_token(client())
+    with pytest.raises(CredentialsError, match=match):
+        provider.get_token(client())
+    assert len(idp.discoveries) == 1
+    clock.now += module.FAILURE_RETRY
     with pytest.raises(CredentialsError, match=match) as exc_info:
         provider.get_token(client())
     assert "hunter2" not in str(exc_info.value)
     assert len(idp.discoveries) == 2
     assert not idp.requests
+    idp.discovery = {"issuer": ISSUER, "token_endpoint": TOKEN_ENDPOINT}
+    clock.now += module.FAILURE_RETRY
+    assert provider.get_token(client()) == "token-1"
+
+
+def test_discovery_without_lock(
+    idp: FakeIdp, provider: TokenProvider, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Slow discovery holds up neither cached tokens nor other issuers.
+
+    Threads that need the same discovery document wait for the same request.
+    """
+    other = "https://other.example.org/"
+    conf = client(token_endpoint=TOKEN_ENDPOINT, scope="other")
+    assert provider.get_token(conf) == "token-1"
+    started = threading.Event()
+    release = threading.Event()
+    send = idp.send
+
+    def slow(method: str, url: str, **kwargs: Any) -> FakeResponse:
+        """Hold the discovery request until released."""
+        if method == "GET":
+            started.set()
+            assert release.wait(timeout=10)
+        return send(method, url, **kwargs)
+
+    monkeypatch.setattr(TokenProvider, "_send", staticmethod(slow))
+    results: list[str] = []
+    threads = [
+        threading.Thread(target=lambda: results.append(provider.get_token(client())))
+        for _ in range(2)
+    ]
+    for thread in threads:
+        thread.start()
+    assert started.wait(timeout=10)
+    # cached token of another endpoint, while the discovery is pending
+    assert provider.get_token(conf) == "token-1"
+    release.set()
+    for thread in threads:
+        thread.join(timeout=10)
+        assert not thread.is_alive()
+    assert sorted(results) == ["token-2", "token-2"]
+    assert len(idp.discoveries) == 1
+    with pytest.raises(CredentialsError, match="unavailable"):
+        provider.get_token(client(issuer=other))
+
+
+def test_discovery_unexpected_error_released(
+    idp: FakeIdp, provider: TokenProvider
+) -> None:
+    """Unexpected errors of discovery end it, so that others can try again."""
+
+    def fail(issuer: str, conf: ClientCredentialsConfig) -> str:
+        """Fail unexpectedly."""
+        raise RuntimeError("bug")
+
+    provider._discover = fail  # type: ignore[method-assign,assignment]
+    with pytest.raises(RuntimeError, match="bug"):
+        provider.get_token(client())
+    del provider._discover
+    assert provider.get_token(client()) == "token-1"
+
+
+def test_discovery_redirect_refused(
+    idp: FakeIdp, provider: TokenProvider, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Redirected discovery documents are refused (e.g., to `http`)."""
+    send = idp.send
+
+    def redirect(method: str, url: str, **kwargs: Any) -> FakeResponse:
+        """Redirect the discovery request."""
+        if method == "GET":
+            return FakeResponse({}, status_code=301)
+        return send(method, url, **kwargs)
+
+    monkeypatch.setattr(TokenProvider, "_send", staticmethod(redirect))
+    with pytest.raises(CredentialsError, match="unavailable: TooManyRedirects"):
+        provider.get_token(client())
 
 
 def test_discovery_unreachable(idp: FakeIdp, provider: TokenProvider) -> None:
@@ -1110,7 +1288,9 @@ def test_credentials_basic_env(
 ) -> None:
     """Backends with `auth: basic` get the credentials of the environment."""
     backend = configured(backend_list, "/basic")
-    with pytest.raises(CredentialsError, match="TES_USER is not set"):
+    with pytest.raises(
+        CredentialsError, match=r"TES_USER \(or TES_USER_FILE\) is not set"
+    ):
         resolve(backend_list, backend, provider)
     monkeypatch.setenv("TES_USER", "user")
     monkeypatch.setenv("TES_PASSWORD", "pass")
@@ -1256,7 +1436,9 @@ def test_check_backends_client_missing(
 ) -> None:
     """Backends with tokens need the client's environment variables."""
     monkeypatch.delenv(name)
-    with pytest.raises(RuntimeError, match=f"set the environment variables {name}$"):
+    with pytest.raises(
+        RuntimeError, match=f"set the environment variables {name} \\(or"
+    ):
         check([{"type": "ga4gh-tes", "url": BACKEND_URL}], provider)
 
 

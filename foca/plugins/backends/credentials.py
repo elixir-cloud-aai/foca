@@ -37,7 +37,7 @@ Plain `requests`; no web framework.
 
 import base64
 import logging
-import os
+import math
 import re
 import threading
 import time
@@ -49,6 +49,7 @@ from urllib.parse import quote_plus, urlsplit
 import requests
 from pydantic import Field, PositiveInt, model_validator
 
+from foca.config.environment import get_env
 from foca.plugins.backends.config import (
     BackendListConfig,
     RegistryEntry,
@@ -68,6 +69,39 @@ https://openid.net/specs/openid-connect-discovery-1_0.html)."""
 DEFAULT_TOKEN_LIFETIME = 60
 """Lifetime (in seconds) assumed for tokens of responses without a valid
 `expires_in`."""
+
+MAX_TOKEN_LIFETIME = 86400
+"""Maximum lifetime (in seconds) of cached tokens, whatever `expires_in` says."""
+
+FAILURE_RETRY = 5.0
+"""Seconds that a failed token fetch or discovery is not tried again: calls
+meanwhile get the same error (or a cached token that is still valid)."""
+
+_DIGITS = re.compile(r"[0-9]{1,9}")
+
+
+def _lifetime(expires_in: object) -> float:
+    """Get the lifetime of a token from `expires_in` of a token response.
+
+    Args:
+        expires_in: Value of `expires_in`: seconds, as a number or, as some
+            identity providers send it, as a string of digits.
+
+    Returns:
+        The lifetime in seconds, from 0 to `MAX_TOKEN_LIFETIME`;
+        `DEFAULT_TOKEN_LIFETIME` for other values (e.g., booleans, `NaN` or
+        infinite numbers).
+    """
+    if isinstance(expires_in, str) and _DIGITS.fullmatch(expires_in):
+        expires_in = int(expires_in)
+    if (
+        not isinstance(expires_in, int | float)
+        or isinstance(expires_in, bool)
+        or not math.isfinite(expires_in)
+    ):
+        return DEFAULT_TOKEN_LIFETIME
+    return min(max(float(expires_in), 0.0), MAX_TOKEN_LIFETIME)
+
 
 # Visible ASCII characters but space: access tokens (RFC 6749, appendix A.12)
 # that fit in an `Authorization` header (RFC 6750, section 2.1)
@@ -288,34 +322,51 @@ class CredentialsError(Exception):
     """
 
 
-def get_env(name: str) -> str:
-    """Get the value of an environment variable with credentials.
+def _get_env(name: str) -> str:
+    """Get credentials from an environment variable, or the file it names.
+
+    As :py:func:`foca.config.environment.get_env`: with `<name>_FILE`, the
+    value is read from the named file (e.g., a mounted Kubernetes Secret).
 
     Args:
         name: Name of the environment variable.
 
     Returns:
-        The value of the environment variable.
+        The value.
 
     Raises:
-        CredentialsError: The variable is not set, or empty.
+        CredentialsError: Neither the variable nor `<name>_FILE` is set (or
+            the value is empty), both are set, or the file can't be read.
     """
-    value = os.environ.get(name)
+    try:
+        value = get_env(name)
+    except ValueError as exc:
+        # names the variables only, never the content of the file
+        raise CredentialsError(str(exc)) from None
     if not value:
-        raise CredentialsError(f"Environment variable {name} is not set")
+        raise CredentialsError(
+            f"Environment variable {name} (or {name}_FILE) is not set"
+        )
     return value
 
 
 def _missing_env(*names: str) -> list[str]:
-    """Get the environment variables that are not set (or empty).
+    """Get the environment variables with credentials that are not available.
 
     Args:
         *names: Names of environment variables.
 
     Returns:
-        The names of the variables that are not set, or empty.
+        The names of the variables that are neither set (nor `<name>_FILE`),
+        empty, set both ways, or whose file can't be read.
     """
-    return [name for name in names if not os.environ.get(name)]
+    missing = []
+    for name in names:
+        try:
+            _get_env(name)
+        except CredentialsError:
+            missing.append(name)
+    return missing
 
 
 def _valid_url(url: str, client: ClientCredentialsConfig) -> bool:
@@ -595,15 +646,18 @@ class TokenProvider:
             )
         self.client_id_env = client_id_env
         self.client_secret_env = client_secret_env
-        # guards the caches and the fetches in progress; held during token
-        # requests never, and during requests of discovery documents only
-        # until the first one of the issuer succeeds
+        # guards the caches and the fetches in progress; never held during
+        # requests to the identity provider
         self._lock = threading.Lock()
         # notified whenever a fetch ends
         self._fetched = threading.Condition(self._lock)
         self._tokens: dict[TokenKey, _Token] = {}
         self._fetching: set[TokenKey] = set()
+        # failed fetches: until when, and the message
+        self._failures: dict[TokenKey, tuple[float, str]] = {}
         self._token_endpoints: dict[str, str] = {}
+        self._discovering: set[str] = set()
+        self._discovery_failures: dict[str, tuple[float, str]] = {}
 
     def __repr__(self) -> str:
         """Represent the provider by its environment variables.
@@ -626,10 +680,12 @@ class TokenProvider:
         return _missing_env(self.client_id_env, self.client_secret_env)
 
     def clear(self) -> None:
-        """Remove all cached tokens and token endpoints."""
+        """Remove all cached tokens, token endpoints and failures."""
         with self._lock:
             self._tokens.clear()
+            self._failures.clear()
             self._token_endpoints.clear()
+            self._discovery_failures.clear()
 
     def get_token(
         self, client: ClientCredentialsConfig, audience: str | None = None
@@ -641,7 +697,11 @@ class TokenProvider:
         fetched (meanwhile, other threads use the cached one); if that
         fails, the cached token is used until it expires. Tokens are cached
         per token endpoint, client, scope and audience; expired ones are
-        removed whenever a token is fetched.
+        removed whenever a token is fetched. After a failed fetch, further
+        calls for the same token get the same error (or the cached token)
+        for `FAILURE_RETRY` seconds instead of fetching it again, so that
+        an unreachable identity provider doesn't hold up each request in
+        turn.
 
         Args:
             client: Client of the gateway at its identity provider.
@@ -656,27 +716,35 @@ class TokenProvider:
             CredentialsError: The client ID or secret is not set, or no
                 token was obtained.
         """
-        client_id = get_env(self.client_id_env)
-        client_secret = get_env(self.client_secret_env)
+        client_id = _get_env(self.client_id_env)
+        client_secret = _get_env(self.client_secret_env)
         if client.audience_parameter is None:
             audience = None
+        endpoint = self._get_token_endpoint(client)
+        key = TokenKey(
+            endpoint, client_id, client.scope, client.audience_parameter, audience
+        )
         with self._fetched:
-            endpoint = self._get_token_endpoint(client)
-            key = TokenKey(
-                endpoint, client_id, client.scope, client.audience_parameter, audience
-            )
             while True:
                 token = self._tokens.get(key)
                 now = time.monotonic()
+                usable = token is not None and now < token.expires_at
                 if token is not None and now < token.refresh_at:
                     return token.value
                 if key not in self._fetching:
-                    self._fetching.add(key)
-                    break
-                if token is not None and now < token.expires_at:
+                    failure = self._failures.get(key)
+                    if failure is None or now >= failure[0]:
+                        self._fetching.add(key)
+                        break
+                    if token is not None and usable:
+                        return token.value
+                    raise CredentialsError(failure[1])
+                if token is not None and usable:
                     # being refreshed by another thread: use it meanwhile
                     return token.value
                 self._fetched.wait()
+        new: _Token | None = None
+        error: CredentialsError | None = None
         try:
             new = self._fetch_token(
                 endpoint=endpoint,
@@ -685,31 +753,38 @@ class TokenProvider:
                 client=client,
                 audience=audience,
             )
-        except BaseException as exc:
+        except CredentialsError as exc:
+            error = exc
+        finally:
+            # also after unexpected errors, so that waiting threads go on
             with self._fetched:
+                now = time.monotonic()
                 self._fetching.discard(key)
+                if new is not None:
+                    for stale in [
+                        k for k, v in self._tokens.items() if now >= v.expires_at
+                    ]:
+                        del self._tokens[stale]
+                    self._tokens[key] = new
+                    self._failures.pop(key, None)
+                elif error is not None:
+                    self._failures[key] = (now + FAILURE_RETRY, str(error))
+                for gone in [k for k, v in self._failures.items() if now >= v[0]]:
+                    del self._failures[gone]
                 self._fetched.notify_all()
-            if not isinstance(exc, CredentialsError) or (
-                token is None or time.monotonic() >= token.expires_at
-            ):
-                raise
-            # the messages of CredentialsError name endpoints, audiences and
-            # error types only, never tokens or client secrets
-            # nosemgrep  # logger-credential-disclosure: see above
-            logger.warning("Using the cached access token until it expires: %s", exc)
-            return token.value
-        with self._fetched:
-            now = time.monotonic()
-            for stale in [k for k, v in self._tokens.items() if now >= v.expires_at]:
-                del self._tokens[stale]
-            self._tokens[key] = new
-            self._fetching.discard(key)
-            self._fetched.notify_all()
-        return new.value
+        if new is not None:
+            return new.value
+        if token is None or time.monotonic() >= token.expires_at:
+            raise error  # type: ignore[misc]  # set if no token was fetched
+        # the messages of CredentialsError name endpoints, audiences and
+        # error types only, never tokens or client secrets
+        # nosemgrep  # logger-credential-disclosure: see above
+        logger.warning("Using the cached access token until it expires: %s", error)
+        return token.value
 
     @staticmethod
     def _send(method: str, url: str, **kwargs: Any) -> requests.Response:
-        """Send a request to the identity provider.
+        """Send a request to the identity provider, without redirects.
 
         Args:
             method: HTTP method.
@@ -720,10 +795,14 @@ class TokenProvider:
             The response.
         """
         with BackendSession() as session:
-            return session.request(method, url, **kwargs)
+            return session.request(method, url, allow_redirects=False, **kwargs)
 
     def _get_token_endpoint(self, client: ClientCredentialsConfig) -> str:
         """Get the token endpoint, from the config or the issuer's discovery.
+
+        Discovery documents are fetched without holding the lock, by one
+        thread at a time per issuer, and cached per issuer; failures are
+        returned to further calls for `FAILURE_RETRY` seconds.
 
         Args:
             client: Client of the gateway at its identity provider.
@@ -744,9 +823,58 @@ class TokenProvider:
             raise CredentialsError(
                 "No issuer or token endpoint of the gateway's client"
             )
-        cached = self._token_endpoints.get(issuer)
-        if cached is not None:
-            return cached
+        with self._fetched:
+            while True:
+                cached = self._token_endpoints.get(issuer)
+                if cached is not None:
+                    return cached
+                if issuer not in self._discovering:
+                    failure = self._discovery_failures.get(issuer)
+                    if failure is not None and time.monotonic() < failure[0]:
+                        raise CredentialsError(failure[1])
+                    self._discovering.add(issuer)
+                    break
+                self._fetched.wait()
+        endpoint: str | None = None
+        error: CredentialsError | None = None
+        try:
+            endpoint = self._discover(issuer, client)
+        except CredentialsError as exc:
+            error = exc
+        finally:
+            with self._fetched:
+                self._discovering.discard(issuer)
+                if endpoint is not None:
+                    self._token_endpoints[issuer] = endpoint
+                    self._discovery_failures.pop(issuer, None)
+                elif error is not None:
+                    self._discovery_failures[issuer] = (
+                        time.monotonic() + FAILURE_RETRY,
+                        str(error),
+                    )
+                self._fetched.notify_all()
+        if endpoint is None:
+            raise error  # type: ignore[misc]  # set if no endpoint was found
+        return endpoint
+
+    def _discover(self, issuer: str, client: ClientCredentialsConfig) -> str:
+        """Read the token endpoint from the issuer's discovery document.
+
+        The document is read without credentials and without following
+        redirects, so that it comes from the issuer's URL itself.
+
+        Args:
+            issuer: Issuer.
+            client: Client of the gateway at its identity provider.
+
+        Returns:
+            URL of the token endpoint.
+
+        Raises:
+            CredentialsError: The discovery document can't be fetched (also
+                if redirected), is not of the issuer, or has no valid token
+                endpoint with an allowed URL scheme.
+        """
         url = f"{issuer.rstrip('/')}/{OIDC_CONFIG_PATH}"
         try:
             response = self._send(
@@ -757,6 +885,8 @@ class TokenProvider:
                 timeout=client.timeout,
             )
             response.raise_for_status()
+            if response.is_redirect:
+                raise requests.TooManyRedirects("redirected", response=response)
             document = response.json()
         except (requests.RequestException, ValueError) as exc:
             raise CredentialsError(
@@ -774,7 +904,6 @@ class TokenProvider:
                 f" endpoint with an allowed URL scheme ({client.url_schemes}),"
                 " without user info"
             )
-        self._token_endpoints[issuer] = endpoint
         return endpoint
 
     def _fetch_token(
@@ -823,9 +952,9 @@ class TokenProvider:
                 data=data,
                 auth=auth,
                 headers={"Accept": "application/json"},
+                # not redirected (cf. `_send`): the client credentials must
+                # not be sent elsewhere
                 timeout=client.timeout,
-                # the client credentials must not be sent elsewhere
-                allow_redirects=False,
             )
             response.raise_for_status()
         except requests.RequestException as exc:
@@ -858,10 +987,7 @@ class TokenProvider:
             raise CredentialsError(
                 f"No valid bearer access token{target} in the response of {endpoint}"
             )
-        lifetime = body.get("expires_in")
-        if not isinstance(lifetime, int | float) or isinstance(lifetime, bool):
-            lifetime = DEFAULT_TOKEN_LIFETIME
-        lifetime = max(float(lifetime), 0.0)
+        lifetime = _lifetime(body.get("expires_in"))
         margin = min(float(client.refresh_before), lifetime / 2)
         return _Token(
             value=value,
@@ -937,7 +1063,7 @@ def get_credentials(
         if basic is None:
             raise CredentialsError(f"No HTTP Basic credentials of {backend.url}")
         return Credentials.basic(
-            get_env(basic.username_env), get_env(basic.password_env)
+            _get_env(basic.username_env), _get_env(basic.password_env)
         )
     if auth == "none":
         return NO_CREDENTIALS
@@ -1092,8 +1218,7 @@ def check_backends(
     own = [
         entry.url
         for entry in listed
-        if isinstance(entry, ServiceEntry)
-        and not BackendList([entry], api=api, public_url=public_url).expand()
+        if isinstance(entry, ServiceEntry) and backend_list.is_own(entry.url)
     ]
     if own:
         raise RuntimeError(
@@ -1130,5 +1255,6 @@ def check_backends(
     if missing:
         raise RuntimeError(
             f"Credentials of {label}s missing: set the environment variables"
-            f" {', '.join(sorted(set(missing)))}"
+            f" {', '.join(sorted(set(missing)))} (or `<name>_FILE`, but not"
+            " both)"
         )
