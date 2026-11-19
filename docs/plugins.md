@@ -389,7 +389,9 @@ credentials = get_credentials(
 )
 with BackendSession() as session:
     session.get(url, auth=credentials, allow_redirects=False, timeout=15)
-# for other clients (e.g., GuardedClient): headers=credentials.headers
+# other clients (e.g., GuardedClient): apply them to the request's headers,
+# which also removes an `Authorization` header there for `auth: none`
+credentials.apply(headers)
 ```
 
 Tokens are cached per process, token endpoint, client, scope and audience,
@@ -401,18 +403,27 @@ token is fetched, or for 5 seconds after its fetch failed, a cached token
 that hasn't expired yet is used; without one, callers wait for the fetch (at
 most three times `timeout`), or get the error of the failed one (so that an
 unreachable identity provider doesn't hold up each request in turn).
-Forked processes (e.g., workers) start without fetches in progress. Requests to it aren't redirected, so
-the client secret goes to the token endpoint only; the discovery document is
-read without credentials, and its `issuer` must be the configured one.
-Requests to the identity provider use the proxies and CA certificates of
-the environment (e.g., `REQUESTS_CA_BUNDLE`), but no `.netrc`.
+Forked processes (e.g., workers) start without fetches in progress. The
+client secret is read for each fetch, so cached tokens stay usable while it
+is unavailable; refresh margins are those of the calling client.
+
+Requests to the identity provider aren't redirected, so the client secret
+goes to the token endpoint only; the discovery document is read without
+credentials, its `issuer` must be the configured one, and a discovered token
+endpoint must have a scheme of the calling client's `url_schemes`. URLs of
+the identity provider must not have user info, queries or fragments. The
+requests use the proxies and CA certificates of the environment (e.g.,
+`REQUESTS_CA_BUNDLE`), but no `.netrc`.
 
 The credentials (`Credentials`, a `requests` auth object) replace any
 `Authorization` header of the request, also with `auth: none`, so that a
 header copied from the caller never reaches a backend, and keep `requests`
 from taking credentials from a `.netrc` file; `BackendSession` takes none
-after redirects either, and drops the credentials on redirects to other
-hosts. Their representation, and the messages of `CredentialsError` (no
+after redirects either, drops the credentials on redirects to other hosts,
+and keeps no cookies, which backends of a shared parent domain could
+otherwise share. Clients other than `requests` call
+`credentials.apply(headers)` on the request's headers (not merge
+`credentials.headers`, which is empty for `auth: none`). Their representation, and the messages of `CredentialsError` (no
 token, variable not set, unknown credentials), leave out tokens and
 secrets.
 
@@ -422,7 +433,8 @@ api="tes", public_url=..., key="custom.tes.backends")`. It refuses to start
 backend has or discovered backends get `auth: client_credentials`, and those
 of each `basic` entry), if the list doesn't fit the client or the API, if
 registries are listed without `server.public_url`, or if configured
-backends are at or below it. It warns about backends without token
+backends are at or below it, or if HTTP Basic credentials are invalid
+(e.g., a user name with a colon). It warns about backends without token
 authentication (`basic` and `none`), registries whose backends get no
 tokens or may have private addresses, and `http` URLs, and logs which
 backends get the gateway's tokens (URLs only).

@@ -45,6 +45,7 @@ import time
 import weakref
 from collections.abc import Collection, Iterable, Mapping, MutableMapping
 from dataclasses import dataclass
+from http.cookiejar import DefaultCookiePolicy
 from typing import Annotated, Any, Literal, NamedTuple, Self
 from urllib.parse import quote_plus, urlsplit
 
@@ -84,7 +85,7 @@ timeout bounds each operation of a request rather than all of it."""
 """Seconds that a failed token fetch or discovery is not tried again: calls
 meanwhile get the same error (or a cached token that is still valid)."""
 
-_DIGITS = re.compile(r"[0-9]{1,9}")
+_DIGITS = re.compile(r"[0-9]+")
 
 
 def _lifetime(expires_in: object) -> float:
@@ -100,7 +101,8 @@ def _lifetime(expires_in: object) -> float:
         infinite numbers).
     """
     if isinstance(expires_in, str) and _DIGITS.fullmatch(expires_in):
-        expires_in = int(expires_in)
+        # longer ones exceed the maximum (and Python's limit of conversions)
+        expires_in = int(expires_in) if len(expires_in) < 10 else MAX_TOKEN_LIFETIME
     if isinstance(expires_in, bool) or not isinstance(expires_in, int | float):
         return DEFAULT_TOKEN_LIFETIME
     if isinstance(expires_in, float) and not math.isfinite(expires_in):
@@ -148,7 +150,9 @@ def _is_resource(value: str) -> bool:
 def check_idp_url(url: object, schemes: Collection[str], name: str) -> None:
     """Check a URL of the identity provider of a gateway's client.
 
-    Error messages leave out the URL, which may hold credentials.
+    URLs must not have queries or fragments either, so that the URLs in
+    messages (e.g., of :py:class:`CredentialsError`) hold no secrets, and
+    discovery paths can be appended. Error messages leave out the URL.
 
     Args:
         url: URL, e.g., of the issuer or token endpoint.
@@ -156,16 +160,18 @@ def check_idp_url(url: object, schemes: Collection[str], name: str) -> None:
         name: What the URL is of, for error messages.
 
     Raises:
-        ValueError: The URL is invalid, has user info, or a scheme that is
-            not allowed.
+        ValueError: The URL is invalid, has user info, a query or fragment,
+            or a scheme that is not allowed.
     """
     try:
-        normalize_url(url, schemes=schemes, name=name, keep_query=True)
+        normalize_url(url, schemes=schemes, name=name)
     except InvalidURL as exc:
         raise ValueError(
             f"{name}: invalid, with user info, or of a scheme that is not"
             f" allowed (`url_schemes`: {sorted(schemes)})"
         ) from exc
+    if not isinstance(url, str) or "?" in url or "#" in url:
+        raise ValueError(f"{name}: must not have a query or fragment")
 
 
 class ClientCredentialsConfig(_Model):
@@ -558,6 +564,8 @@ class BackendSession(requests.Session):
         """Create a session."""
         super().__init__()
         self.auth = NO_CREDENTIALS
+        # no cookies, which backends of a shared parent domain could share
+        self.cookies.set_policy(DefaultCookiePolicy(allowed_domains=[]))
 
     def rebuild_auth(
         self, prepared_request: requests.PreparedRequest, response: requests.Response
@@ -599,13 +607,26 @@ class _Token:
 
     Attributes:
         value: The access token.
-        refresh_at: When to fetch a new token (`time.monotonic()`).
+        issued_at: When the token was requested (`time.monotonic()`).
         expires_at: When the token expires (`time.monotonic()`).
     """
 
     value: str
-    refresh_at: float
+    issued_at: float
     expires_at: float
+
+    def refresh_at(self, refresh_before: float) -> float:
+        """Get when to fetch a new token, for a client's margin.
+
+        Args:
+            refresh_before: Seconds before the expiry (at most half the
+                lifetime of the token).
+
+        Returns:
+            The time (`time.monotonic()`).
+        """
+        lifetime = self.expires_at - self.issued_at
+        return self.expires_at - min(float(refresh_before), lifetime / 2)
 
 
 class TokenProvider:
@@ -752,7 +773,6 @@ class TokenProvider:
                 token was obtained.
         """
         client_id = _get_env(self.client_id_env)
-        client_secret = _get_env(self.client_secret_env)
         if client.audience_parameter is None:
             audience = None
         endpoint = self._get_token_endpoint(client)
@@ -765,7 +785,7 @@ class TokenProvider:
                 token = self._tokens.get(key)
                 now = time.monotonic()
                 usable = token is not None and now < token.expires_at
-                if token is not None and now < token.refresh_at:
+                if token is not None and now < token.refresh_at(client.refresh_before):
                     return token.value
                 if key not in self._fetching:
                     failure = self._failures.get(key)
@@ -783,6 +803,8 @@ class TokenProvider:
         new: _Token | None = None
         error: CredentialsError | None = None
         try:
+            # read for each fetch only: cached tokens stay usable meanwhile
+            client_secret = _get_env(self.client_secret_env)
             new = self._fetch_token(
                 endpoint=endpoint,
                 client_id=client_id,
@@ -877,6 +899,12 @@ class TokenProvider:
             while True:
                 cached = self._token_endpoints.get(issuer)
                 if cached is not None:
+                    # discovered for a client that may allow other schemes
+                    if not _valid_url(cached, client):
+                        raise CredentialsError(
+                            f"Token endpoint of {issuer!r} has a URL scheme that"
+                            f" is not allowed ({client.url_schemes})"
+                        )
                     return cached
                 if issuer not in self._discovering:
                     failure = self._discovery_failures.get(issuer)
@@ -1046,12 +1074,7 @@ class TokenProvider:
                 f"No valid bearer access token{target} in the response of {endpoint}"
             )
         lifetime = _lifetime(body.get("expires_in"))
-        margin = min(float(client.refresh_before), lifetime / 2)
-        return _Token(
-            value=value,
-            refresh_at=start + lifetime - margin,
-            expires_at=start + lifetime,
-        )
+        return _Token(value=value, issued_at=start, expires_at=start + lifetime)
 
 
 # Providers of this process, for `_reset_after_fork`
@@ -1120,7 +1143,8 @@ def get_credentials(
 
     Returns:
         The credentials, a `requests` auth object; for other clients,
-        :py:attr:`Credentials.headers`.
+        :py:meth:`Credentials.apply` (which also removes an `Authorization`
+        header of the request for no credentials).
 
     Raises:
         CredentialsError: The credentials are unknown, or not available
@@ -1193,7 +1217,8 @@ def _check_service(entry: ServiceEntry, label: str) -> list[str]:
         not set, if any.
 
     Raises:
-        RuntimeError: The backend has `auth: basic`, but no `basic`.
+        RuntimeError: The backend has `auth: basic`, but no `basic`, or
+            invalid credentials (e.g., a user name with a colon).
     """
     if entry.auth == "basic":
         logger.warning(
@@ -1205,7 +1230,17 @@ def _check_service(entry: ServiceEntry, label: str) -> list[str]:
         if entry.basic is None:
             # prevented by validation, unless the config was changed later
             raise RuntimeError(f"{label} {entry.url}: `auth: basic` without `basic`")
-        return _missing_env(entry.basic.username_env, entry.basic.password_env)
+        names = (entry.basic.username_env, entry.basic.password_env)
+        missing = _missing_env(*names)
+        if not missing:
+            try:
+                Credentials.basic(*(_get_env(name) for name in names))
+            except CredentialsError as exc:
+                # names no values (cf. `Credentials.basic`)
+                raise RuntimeError(
+                    f"{label} {entry.url}: invalid HTTP Basic credentials: {exc}"
+                ) from None
+        return missing
     if entry.auth == "none":
         logger.warning("%s %s: no authentication (`auth: none`)", label, entry.url)
     return []

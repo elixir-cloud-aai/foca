@@ -623,6 +623,7 @@ def test_token_failure_not_retried_at_once(
         (1e300, 86400),
         ("300", 300),
         ("3e2", 60),
+        ("1" * 5000, 86400),
         ("", 60),
         (300.5, 300.5),
         (10**400, 86400),
@@ -1183,10 +1184,14 @@ class IdpHandler(BaseHTTPRequestHandler):
                 "path": self.path,
                 "authorization": self.headers.get("Authorization"),
                 "body": body,
+                "cookie": self.headers.get("Cookie"),
             }
         )
         if self.path == "/moved":
             self._json(307, {}, {"Location": "/token"})
+            return
+        if self.path == "/cookie":
+            self._json(200, {}, {"Set-Cookie": "session=s3cret; Path=/"})
             return
         self._json(200, {"access_token": "local-token", "expires_in": 300})
 
@@ -1570,6 +1575,27 @@ def test_check_backends_basic_missing(
         check(listed, provider)
 
 
+@pytest.mark.parametrize("username", ["us:er", "us\ner"])
+def test_check_backends_basic_invalid(
+    provider: TokenProvider, monkeypatch: pytest.MonkeyPatch, username: str
+) -> None:
+    """Invalid HTTP Basic credentials refuse to start, without their values."""
+    monkeypatch.setenv("TES_USER", username)
+    monkeypatch.setenv("TES_PASSWORD", "hunter2")
+    listed = [
+        {
+            "type": "ga4gh-tes",
+            "url": BACKEND_URL,
+            "auth": "basic",
+            "basic": {"username_env": "TES_USER", "password_env": "TES_PASSWORD"},
+        }
+    ]
+    with pytest.raises(RuntimeError, match="invalid HTTP Basic credentials") as info:
+        check(listed, provider)
+    assert "hunter2" not in str(info.value)
+    assert username not in str(info.value)
+
+
 def test_check_backends_basic_removed(provider: TokenProvider) -> None:
     """Entries changed after validation to `basic` without `basic` fail."""
     entry = ServiceEntry(type="ga4gh-tes", url=BACKEND_URL, auth="none")
@@ -1623,3 +1649,74 @@ def test_check_backends_invalid(
     """Lists that can't work refuse to start."""
     with pytest.raises(RuntimeError, match=match):
         check(listed, provider, conf, public_url=public_url)
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"issuer": "https://login.example.org/?key=hunter2"},
+        {"token_endpoint": "https://login.example.org/token#frag"},
+    ],
+)
+def test_client_urls_query_refused(settings: dict[str, Any]) -> None:
+    """URLs of the identity provider have no query or fragment (no secrets)."""
+    with pytest.raises(ValidationError, match="must not have a query") as info:
+        ClientCredentialsConfig(**settings)
+    assert "hunter2" not in str(info.value)
+
+
+def test_discovered_endpoint_with_query(idp: FakeIdp, provider: TokenProvider) -> None:
+    """Discovered token endpoints with queries are refused."""
+    idp.discovery = {"issuer": ISSUER, "token_endpoint": f"{TOKEN_ENDPOINT}?k=v"}
+    with pytest.raises(CredentialsError, match="no valid token endpoint"):
+        provider.get_token(client())
+
+
+def test_cached_endpoint_schemes(
+    idp: FakeIdp, provider: TokenProvider, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Endpoints discovered for clients allowing `http` aren't used by others."""
+    idp.discovery = {"issuer": ISSUER, "token_endpoint": "http://login.example.org/t"}
+    lax = client(issuer=ISSUER, url_schemes=["https", "http"])
+    with pytest.raises(CredentialsError, match="ConnectionError"):
+        provider.get_token(lax)
+    with pytest.raises(CredentialsError, match="scheme that is not allowed"):
+        provider.get_token(client())
+    assert not idp.requests
+
+
+def test_refresh_margin_of_caller(
+    idp: FakeIdp, clock: Clock, provider: TokenProvider
+) -> None:
+    """Refresh margins are those of the calling client, not of the first one."""
+    assert provider.get_token(client(issuer=ISSUER, refresh_before=10)) == "token-1"
+    clock.now += 200
+    assert provider.get_token(client(issuer=ISSUER, refresh_before=10)) == "token-1"
+    assert provider.get_token(client(issuer=ISSUER, refresh_before=120)) == "token-2"
+
+
+def test_secret_unavailable_cached(
+    idp: FakeIdp, clock: Clock, provider: TokenProvider, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cached tokens stay usable while the client secret is unavailable.
+
+    On refresh, the missing secret counts as a failed fetch.
+    """
+    assert provider.get_token(client()) == "token-1"
+    monkeypatch.delenv(CLIENT_SECRET_ENV)
+    assert provider.get_token(client()) == "token-1"
+    clock.now += 240
+    assert provider.get_token(client()) == "token-1"
+    clock.now += 60
+    with pytest.raises(CredentialsError, match=CLIENT_SECRET_ENV):
+        provider.get_token(client())
+    assert len(idp.requests) == 1
+
+
+def test_session_no_cookies(local_idp: str) -> None:
+    """Sessions keep no cookies of responses."""
+    with BackendSession() as session:
+        session.post(f"{local_idp}/cookie", data="x", timeout=5)
+        session.post(f"{local_idp}/token", data="x", timeout=5)
+        assert not session.cookies
+    assert IdpHandler.seen[-1]["cookie"] is None
