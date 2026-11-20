@@ -150,7 +150,8 @@ Authenticated clients choose presets or their own pipelines
 backends](../plugins.md#per-request-pipelines-and-backends)). Client
 pipelines are disabled by default, so that no client can skip steps of
 `pipeline` unless an admin allows it; backend choices are enabled by
-default, as they can only narrow or reorder the candidates. Both are
+default, as they can only narrow or reorder the candidates (an `allow` of
+identifiers only, none of them known, is refused with `400`). Both are
 limited to the allowlist (the keys `client_selectable` and `roles` of the
 entries in `available`) and to the candidates of each request. Presets are
 written by admins, so they may use plugins that are not
