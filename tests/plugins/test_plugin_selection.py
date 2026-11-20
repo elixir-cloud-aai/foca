@@ -341,6 +341,63 @@ def test_route_applies_backend_selection() -> None:
     assert run.candidates_out == ["c", "b", "a"]
 
 
+def test_route_refuses_allow_without_known_backend() -> None:
+    """An `allow` that names no known backend is refused before routing.
+
+    The client gets `400` (`invalid-backends`) instead of the app's "no
+    backend available", without its values in the message, and no plugin
+    runs; the items are recorded as discarded.
+    """
+    items = ["secret-x", "https://secret.example.org"]
+    tags = {"gateway.backends": json.dumps({"type": "allow", "backends": items})}
+    run = host().start(request(tags), ALICE)
+    with pytest.raises(InvalidSelection) as exc_info:
+        run.route(BACKENDS)
+    assert exc_info.value.slug == "invalid-backends"
+    assert exc_info.value.code == 400
+    assert str(exc_info.value) == "None of the chosen backends is known"
+    assert "secret" not in str(exc_info.value)
+    assert run.executions == []
+    assert run.backends_discarded == items
+    assert run.candidates_in == ["a", "b", "c"]
+    assert run.candidates_out == []
+    assert run.provenance()["selection"]["discarded"] == items
+
+
+@pytest.mark.parametrize("kind", ["order", "forbid"])
+def test_route_keeps_other_selections_without_known_backend(kind: str) -> None:
+    """`order` and `forbid` never empty the candidates: unknown items pass."""
+    tags = {"gateway.backends": json.dumps({"type": kind, "backends": ["x"]})}
+    run = host().start(request(tags), ALICE)
+    assert [b.id for b in run.route(BACKENDS)] == ["c", "b", "a"]
+    assert run.backends_discarded == ["x"]
+
+
+@pytest.mark.parametrize("item", ["c", "https://C.example.org/"])
+def test_route_allow_of_known_backend_left_out(item: str) -> None:
+    """A known backend that the app left out of the candidates isn't unknown.
+
+    Apps pass all their backends as `known` (e.g., also ones that can't run
+    the request); the selection then ends without candidates, as before, and
+    the app answers as it does without candidates.
+    """
+    tags = {"gateway.backends": json.dumps({"type": "allow", "backends": [item]})}
+    run = host().start(request(tags), ALICE)
+    assert run.route(BACKENDS[:2], known=BACKENDS) == []
+    assert run.backends_discarded == [item]
+
+
+def test_route_allow_of_own_url_is_unknown() -> None:
+    """Backends at the gateway's own URL are never known to clients."""
+    own = Backend(id="own", url="https://gw.example.org/ga4gh/tes/v1")
+    tags = {"gateway.backends": json.dumps({"type": "allow", "backends": ["own"]})}
+    run = make_host(
+        [{"plugin": "test.reverse"}], public_url="https://gw.example.org"
+    ).start(request(tags), ALICE)
+    with pytest.raises(InvalidSelection, match="None of the chosen"):
+        run.route([*BACKENDS, own])
+
+
 def test_parse_client_pipeline() -> None:
     """Client pipelines use the step schema without admin keys."""
     steps = parse_client_pipeline('[{"plugin": "a.b", "params": {"x": 1}}]')

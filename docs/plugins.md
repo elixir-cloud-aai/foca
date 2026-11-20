@@ -105,7 +105,15 @@ choices](configuration/plugins.md#per-request-choices)):
   The selection applies to the candidates after the `route` phase: clients
   can only narrow or reorder the configured and verified backends; listed
   backends that are not candidates are discarded (and recorded, cf.
-  [provenance](#provenance)), never added.
+  [provenance](#provenance)), never added. An `allow` that names none of
+  the backends that the app knows (e.g., only a mistyped identifier, a URL
+  of a backend that isn't configured or verified, or one at the gateway's
+  own URL) is refused with `400` (`invalid-backends`, "None of the chosen
+  backends is known") before any plugin runs, instead of ending without a
+  backend. An `allow` of known backends that routing removes, that the app
+  left out (e.g., as they can't run the request), or that don't accept the
+  request still ends without a backend (e.g., `503`). `order` and `forbid`
+  are never refused for unknown items.
 
 !!! warning "A client pipeline replaces the default pipeline"
 
@@ -945,6 +953,13 @@ if run.final_reason == "outcome_unknown":
     ...  # a backend may have the task: mark it as such, don't retry
 ```
 
+Apps that pass only some of their backends to `run.route()` (e.g., the
+ones that can run the request) pass all of them as `known`
+(`run.route(candidates, known=backends)`), so that a client's `allow` of a
+backend that was left out isn't refused as unknown (`400`), but ends
+without a backend, which the app can explain (cf. [per-request
+pipelines and backends](#per-request-pipelines-and-backends)).
+
 The app's client raises `NotAccepted(reason)` when a backend certainly did
 not accept the request (e.g., `connect_error`, `tls_error`, `not_public`,
 `no_credentials`, `http_403`), and `OutcomeUnknown(reason)` when it may have
@@ -1250,7 +1265,7 @@ Gateway errors are problem details with the extension member
 | `rejected` | 400, 403, 409, 413, 422 | a plugin rejected the request |
 | `plugin-step-failed` | 500 | all alternatives of a required step failed |
 | `invalid-pipeline` | 400 | the pipeline tag is invalid or not allowed |
-| `invalid-backends` | 400 | the backends tag is invalid or not allowed |
+| `invalid-backends` | 400 | the backends tag is invalid or not allowed, or an `allow` names no known backend |
 | `reserved-tag` | 400 | the client set another tag under the reserved prefix, or the tags are no map |
 | `no-backend-available` | 503 | no backend accepted the request |
 | `forward-timeout` | 503 | the forwarding attempts took longer than `forward_timeout` |
