@@ -111,16 +111,20 @@ class InvalidSelection(GatewayError):
     code = 400
     title = "Bad Request"
 
-    def __init__(self, detail: str, slug: str = "invalid-pipeline") -> None:
+    def __init__(
+        self, detail: str, slug: str = "invalid-pipeline", run: Any = None
+    ) -> None:
         """Create the error.
 
         Args:
             detail: Description of the problem, for the client.
             slug: Last part of the problem type: `invalid-pipeline`,
                 `invalid-backends` or `reserved-tag`.
+            run: Run of the request, if started (e.g., a choice of
+                backends refused by `route()`).
         """
         self.slug = slug
-        super().__init__(detail)
+        super().__init__(detail, run=run)
 
 
 def _phrase(status: int) -> str:

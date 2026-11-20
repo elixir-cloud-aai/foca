@@ -20,6 +20,7 @@ from foca.plugins.selection import (
     apply_backend_selection,
     parse_client_pipeline,
     parse_client_tags,
+    selects_unknown_only,
 )
 from tests.plugins.fakes import FAKES, fake_entry_points, make_host
 
@@ -342,26 +343,52 @@ def test_route_applies_backend_selection() -> None:
 
 
 def test_route_refuses_allow_without_known_backend() -> None:
-    """An `allow` that names no known backend is refused before routing.
+    """An `allow` of unknown identifiers is refused before the route phase.
 
     The client gets `400` (`invalid-backends`) instead of the app's "no
-    backend available", without its values in the message, and no plugin
-    runs; the items are recorded as discarded.
+    backend available", without its values in the message; plugins of the
+    `request` phase ran already, but none of the `route` phase. The error
+    carries the run, whose record lists the items as discarded.
     """
-    items = ["secret-x", "https://secret.example.org"]
+    items = ["secret-x", "secret-y"]
     tags = {"gateway.backends": json.dumps({"type": "allow", "backends": items})}
-    run = host().start(request(tags), ALICE)
+    run = make_host(
+        [{"plugin": "test.tag"}, {"plugin": "test.reverse"}],
+        client_pipelines={"enabled": False},
+    ).start(request(tags), ALICE)
+    run.request()
     with pytest.raises(InvalidSelection) as exc_info:
         run.route(BACKENDS)
     assert exc_info.value.slug == "invalid-backends"
     assert exc_info.value.code == 400
+    assert exc_info.value.run is run
     assert str(exc_info.value) == "None of the chosen backends is known"
     assert "secret" not in str(exc_info.value)
-    assert run.executions == []
+    assert [execution.plugin for execution in run.executions] == ["test.tag"]
     assert run.backends_discarded == items
     assert run.candidates_in == ["a", "b", "c"]
     assert run.candidates_out == []
     assert run.provenance()["selection"]["discarded"] == items
+
+
+@pytest.mark.parametrize(
+    ("items", "expected"),
+    [
+        # a URL may name a backend of a registry that is unavailable for now
+        (["https://x.example.org"], []),
+        (["x", "https://x.example.org"], []),
+        # one known item is enough
+        (["x", "c"], ["c"]),
+        (["x", "https://C.example.org/"], ["c"]),
+    ],
+)
+def test_route_keeps_allow_with_url_or_known_item(
+    items: list[str], expected: list[str]
+) -> None:
+    """An `allow` with a URL or a known item isn't refused."""
+    tags = {"gateway.backends": json.dumps({"type": "allow", "backends": items})}
+    run = host().start(request(tags), ALICE)
+    assert [b.id for b in run.route(BACKENDS)] == expected
 
 
 @pytest.mark.parametrize("kind", ["order", "forbid"])
@@ -373,18 +400,52 @@ def test_route_keeps_other_selections_without_known_backend(kind: str) -> None:
     assert run.backends_discarded == ["x"]
 
 
-@pytest.mark.parametrize("item", ["c", "https://C.example.org/"])
-def test_route_allow_of_known_backend_left_out(item: str) -> None:
-    """A known backend that the app left out of the candidates isn't unknown.
+def test_route_allow_of_known_backend_left_out() -> None:
+    """A backend that the app left out of the candidates isn't unknown.
 
-    Apps pass all their backends as `known` (e.g., also ones that can't run
-    the request); the selection then ends without candidates, as before, and
-    the app answers as it does without candidates.
+    Apps pass the backends that they left out as `known` (e.g., ones that
+    can't run the request); the selection then ends without candidates, as
+    before, and the app answers as it does without candidates.
     """
-    tags = {"gateway.backends": json.dumps({"type": "allow", "backends": [item]})}
+    tags = {"gateway.backends": json.dumps({"type": "allow", "backends": ["c"]})}
     run = host().start(request(tags), ALICE)
-    assert run.route(BACKENDS[:2], known=BACKENDS) == []
-    assert run.backends_discarded == [item]
+    assert run.route(BACKENDS[:2], known=BACKENDS[2:]) == []
+    assert run.backends_discarded == ["c"]
+    # Candidates count without `known`, too
+    run = host().start(request(tags), ALICE)
+    assert [b.id for b in run.route(BACKENDS, known=[])] == ["c"]
+
+
+def test_route_allow_without_backends() -> None:
+    """Without any backends, an identifier is unknown, a URL isn't refused."""
+    allow_id = {"gateway.backends": json.dumps({"type": "allow", "backends": ["a"]})}
+    with pytest.raises(InvalidSelection, match="None of the chosen"):
+        host().start(request(allow_id), ALICE).route([])
+    allow_url = {
+        "gateway.backends": json.dumps(
+            {"type": "allow", "backends": ["https://a.example.org"]}
+        )
+    }
+    assert host().start(request(allow_url), ALICE).route([]) == []
+
+
+@pytest.mark.parametrize(
+    ("kind", "items", "expected"),
+    [
+        ("allow", ["x"], True),
+        ("allow", ["x", "y"], True),
+        ("allow", ["x", "a"], False),
+        ("allow", ["a"], False),
+        ("allow", ["https://x.example.org"], False),
+        ("allow", ["https://A.example.org/"], False),
+        ("order", ["x"], False),
+        ("forbid", ["x"], False),
+    ],
+)
+def test_selects_unknown_only(kind: str, items: list[str], expected: bool) -> None:
+    """Only `allow` selections of unknown identifiers alone are unknown."""
+    selection = BackendSelection.model_validate({"type": kind, "backends": items})
+    assert selects_unknown_only(BACKENDS, selection) is expected
 
 
 def test_route_allow_of_own_url_is_unknown() -> None:

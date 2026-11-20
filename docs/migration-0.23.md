@@ -260,18 +260,21 @@ where they caught their own error. Subclasses of `ServiceEntry` that add
 ## Choices of unknown backends are refused
 
 A client's [backend choice](plugins.md#per-request-pipelines-and-backends)
-`{"type": "allow", ...}` (tag `gateway.backends`) that names none of the
-gateway's backends (e.g., only a mistyped identifier) is now refused with
-`400` (problem type `invalid-backends`, "None of the chosen backends is
-known") by `run.route()`, before any plugin runs. Before, it ended without a
-backend, which apps answer as an outage (e.g., proTES with `503`), and the
-client couldn't tell why. `order` and `forbid` are unchanged.
+`{"type": "allow", ...}` (tag `gateway.backends`) of identifiers only, none
+of which names a backend of the gateway (e.g., a mistyped identifier), is
+now refused with `400` (problem type `invalid-backends`, "None of the chosen
+backends is known") by `run.route()`, before the `route` phase. Before, it
+ended without a backend, which apps answer as an outage (e.g., proTES with
+`503`), and the client couldn't tell why. Choices with a URL, `order` and
+`forbid` are unchanged.
 
-- Clients that pin requests with `allow` get `400` instead of `503` for an
-  unknown backend, and shouldn't retry.
+- Clients that pin requests by identifier get `400` instead of `503` for an
+  unknown identifier: the gateway's configuration has no such backend.
 - Apps that pass only some of their backends to `run.route()` (e.g., those
-  that can run the request) pass all of them as `known`
-  (`run.route(candidates, known=backends)`), so that an `allow` of a backend
-  that they left out still ends without a backend, which they can explain
-  (e.g., proTES's `400` for a TES version that no chosen TES instance
-  supports); otherwise, it is refused as unknown.
+  that can run the request) pass the others as `known`
+  (`run.route(candidates, known=others)`), so that an `allow` of one of them
+  still ends without a backend, which they can explain (e.g., proTES's `400`
+  for a TES version that no chosen TES instance supports); otherwise, it is
+  refused as unknown.
+- Apps that store failed runs from `GatewayError.run` get the run of the
+  refusal too.

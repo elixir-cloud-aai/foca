@@ -476,12 +476,14 @@ def apply_backend_selection(
 
 
 def selects_unknown_only(known: Sequence[Backend], selection: BackendSelection) -> bool:
-    """Check whether an `allow` selection names none of the known backends.
+    """Check whether an `allow` selection names only unknown identifiers.
 
     Such a selection can never yield a candidate, whatever routing does, so
-    the request can be refused as invalid rather than as unavailable.
-    `order` and `forbid` never empty the candidates on their own, and are
-    never refused.
+    the request can be refused as invalid rather than as unavailable. Only
+    identifiers count: URLs may name backends of a registry that is
+    unavailable for now (discovered backends have their URL as identifier),
+    so a selection with a URL is never refused. `order` and `forbid` never
+    empty the candidates on their own, and are never refused.
 
     Args:
         known: All backends that the gateway knows for the request's API
@@ -489,10 +491,10 @@ def selects_unknown_only(known: Sequence[Backend], selection: BackendSelection) 
         selection: Client's selection.
 
     Returns:
-        Whether the selection is `allow` and none of its items matches a
-        known backend (as in :py:func:`apply_backend_selection`).
+        Whether the selection is `allow`, has no URLs, and none of its items
+        matches a known backend (as in :py:func:`apply_backend_selection`).
     """
-    if selection.type != "allow":
+    if selection.type != "allow" or any("://" in item for item in selection.backends):
         return False
     match = _matcher(known)
     return all(match(item) is None for item in selection.backends)
