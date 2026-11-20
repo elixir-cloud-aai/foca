@@ -22,7 +22,7 @@ from foca.plugins.selection import (
     parse_client_tags,
     selects_unknown_only,
 )
-from tests.plugins.fakes import FAKES, fake_entry_points, make_host
+from tests.plugins.fakes import FAKES, ReverseRouter, fake_entry_points, make_host
 
 BACKENDS = [
     Backend(id="a", url="https://a.example.org"),
@@ -414,6 +414,28 @@ def test_route_allow_of_known_backend_left_out() -> None:
     # Candidates count without `known`, too
     run = host().start(request(tags), ALICE)
     assert [b.id for b in run.route(BACKENDS, known=[])] == ["c"]
+
+
+def test_route_allow_of_backend_routed_away(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A candidate that the `route` phase removes isn't unknown.
+
+    The selection ends without candidates, as before, so that the app
+    answers as it does without candidates (e.g., "no backend available").
+    """
+
+    def drop_c(
+        self: ReverseRouter, candidates: list[Backend], ctx: Any
+    ) -> list[Backend]:
+        """Route all candidates but `c`."""
+        return [backend for backend in candidates if backend.id != "c"]
+
+    monkeypatch.setattr(ReverseRouter, "on_route", drop_c)
+    tags = {"gateway.backends": json.dumps({"type": "allow", "backends": ["c"]})}
+    run = host().start(request(tags), ALICE)
+    assert run.route(BACKENDS) == []
+    assert run.backends_discarded == ["c"]
+    assert run.candidates_in == ["a", "b", "c"]
+    assert run.candidates_out == []
 
 
 def test_route_allow_without_backends() -> None:
