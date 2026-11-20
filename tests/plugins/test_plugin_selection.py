@@ -13,6 +13,7 @@ import pytest
 from foca.plugins import Backend, Headers, InboundRequest, Principal
 from foca.plugins.config import PluginsConfig
 from foca.plugins.engine import PluginHost
+from foca.plugins.errors import NoBackendAvailable
 from foca.plugins.loader import load_plugins
 from foca.plugins.selection import (
     BackendSelection,
@@ -436,6 +437,23 @@ def test_route_allow_of_backend_routed_away(monkeypatch: pytest.MonkeyPatch) -> 
     assert run.backends_discarded == ["c"]
     assert run.candidates_in == ["a", "b", "c"]
     assert run.candidates_out == []
+
+
+def test_route_allow_of_backend_that_fails() -> None:
+    """A known backend that then fails ends without a backend, as before.
+
+    The pin isn't refused: the client gets the app's "no backend
+    available" (`503`), as the failure may be transient.
+    """
+    tags = {"gateway.backends": json.dumps({"type": "allow", "backends": ["c"]})}
+    run = host().start(request(tags), ALICE)
+    attempts = run.attempts(run.route(BACKENDS))
+    attempt = next(attempts)
+    assert attempt.backend.id == "c"
+    attempt.failed("connect_error")
+    with pytest.raises(NoBackendAvailable) as exc_info:
+        next(attempts)
+    assert exc_info.value.code == 503
 
 
 def test_route_allow_without_backends() -> None:
