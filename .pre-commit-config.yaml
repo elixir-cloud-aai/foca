@@ -20,7 +20,7 @@ repos:
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md]
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.17.4
+    rev: v0.17.5
     hooks:
       - id: ruff-check
         args: [--fix]
@@ -28,7 +28,7 @@ repos:
   # Same version as in `requirements/semgrep.txt` (checked by the lint job);
   # rules and their tests in `.semgrep/`
   - repo: https://github.com/semgrep/pre-commit
-    rev: v1.184.0
+    rev: v1.185.0
     hooks:
       - id: semgrep
         args:

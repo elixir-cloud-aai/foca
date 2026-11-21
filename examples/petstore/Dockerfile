@@ -2,7 +2,7 @@
 ## uv, to install the app's packages: the FOCA image has no pip. Mounted into
 ## the step that installs them only, so that the image doesn't contain it;
 ## pinned by digest (Dependabot updates the tag and digest together)
-FROM ghcr.io/astral-sh/uv:0.13.8@sha256:5cc1805e2426484abca4ad46ea783bab281fdb225fd82d8ce6d66a81254bac85 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d AS uv
 
 ### BASE IMAGE ###
 FROM foca-petstore-root:latest
