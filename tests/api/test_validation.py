@@ -144,6 +144,11 @@ SPEC: dict[str, Any] = {
                         "in": "query",
                         "schema": {"type": "string", "pattern": "^[0-9a-f]{4}$"},
                     },
+                    {
+                        "name": "ref",
+                        "in": "query",
+                        "schema": {"$ref": "#/components/schemas/Code"},
+                    },
                 ],
                 "requestBody": {
                     "content": {
@@ -189,6 +194,7 @@ SPEC: dict[str, Any] = {
             },
         },
     },
+    "components": {"schemas": {"Code": {"type": "string", "pattern": "^[0-9a-f]{4}$"}}},
 }
 
 
@@ -475,6 +481,14 @@ class TestPatterns:
                 "code": "pattern-mismatch",
             }
         ]
+
+    def test_referenced_schema(self, tmp_path: Path) -> None:
+        """Patterns of referenced schemas of parameters are checked too."""
+        client = Client(_create_app(tmp_path))
+        assert client.put(self.URL + "&ref=0a1b", json=self.VALID).status_code == 200
+        response = client.put(self.URL + "&ref=0a1b%0A", json=self.VALID)
+        assert response.status_code == 400
+        assert [e["parameter"] for e in response.json()["errors"]] == ["ref"]
 
     def test_path(self, tmp_path: Path) -> None:
         """A trailing newline doesn't match `$` in a path parameter."""
