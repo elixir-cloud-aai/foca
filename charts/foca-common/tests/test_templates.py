@@ -1551,6 +1551,23 @@ def test_max_content_length(chart_with_settings: Callable[[str], Path]) -> None:
     assert docs[("ConfigMap", "limit")]["data"] == {"limit": "2048"}
 
 
+def test_body_size_limits_null(render: Callable[..., Docs]) -> None:
+    """The schema allows removing FOCA's default size limits (`null`)."""
+    server = {"max_content_length": None, "max_form_memory_size": None}
+    render("--set-json", f"config.server={json.dumps(server)}", *NO_INGRESS)
+
+
+@pytest.mark.parametrize("value", ["0", "1.5", '"1m"'])
+def test_max_form_memory_size_invalid(
+    render_error: Callable[..., str], value: str
+) -> None:
+    """The schema rejects invalid size limits of form data."""
+    error = render_error(
+        "--set-json", f"config.server.max_form_memory_size={value}", *NO_INGRESS
+    )
+    assert "max_form_memory_size" in error
+
+
 def test_ingress_host_required(render_error: Callable[..., str]) -> None:
     """An Ingress needs a host name."""
     error = render_error("--set", "mongodb.auth.existingSecret=s", required=False)

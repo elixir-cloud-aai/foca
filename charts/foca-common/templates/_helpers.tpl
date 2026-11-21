@@ -708,7 +708,10 @@ App image: `<valuesKey>.image` with `<valuesKey>.tag`, by default the chart's
 {{/*
 Size limit of request bodies of the app, in bytes: `server.max_content_length`
 of the overlay (see `foca-common.configOverlay`), by default that of the
-app's settings (`maxContentLength`); empty if neither sets one. The library
+app's settings (`maxContentLength`); empty if neither sets one (FOCA 0.23.0
+and later then limit bodies to 10 MiB, which the library doesn't assume, as
+it doesn't know the app's FOCA version; app charts set `maxContentLength`
+for it). The library
 uses it only to check ingress-nginx's size limit of the Ingress (see
 `foca-common.checkProxyBodySize`); app charts may use it, e.g., for a size
 limit at the proxy in resources of their own. Fails unless it is a positive integer, as

@@ -510,9 +510,14 @@
           "type": ["object", "null"],
           "properties": {
             "max_content_length": {
-              "type": "integer",
+              "type": ["integer", "null"],
               "minimum": 1,
-              "description": "Size limit of request bodies, in bytes"
+              "description": "Size limit of request bodies, in bytes (FOCA's default: 10485760); no limit if null"
+            },
+            "max_form_memory_size": {
+              "type": ["integer", "null"],
+              "minimum": 1,
+              "description": "Size limit of form data (URL-encoded bodies, multipart fields), in bytes (FOCA's default: 500000); no limit beyond max_content_length if null"
             }
           }
         }
