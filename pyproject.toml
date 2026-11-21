@@ -83,7 +83,7 @@ dev = [
     "coverage>=7.6",
     # Tests of `foca.gunicorn_config`, which does not import it (apps that
     # serve FOCA with Gunicorn install it themselves)
-    "gunicorn>=26.2,<27",
+    "gunicorn>=26.2,<28",
     "mongomock>=4.3",
     "mypy>=1.13",
     "pre-commit>=4",
