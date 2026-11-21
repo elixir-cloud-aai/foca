@@ -18,7 +18,7 @@ setting them get `400`, so that tags under the prefix can be trusted.
 
 import json
 import math
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -459,21 +459,75 @@ def apply_backend_selection(
         Candidates after the selection, in order, and the items that matched
         no candidate.
     """
-    ids: dict[str, Backend] = {}
-    urls: dict[str, Backend] = {}
-    for backend in candidates:
-        ids.setdefault(backend.id, backend)
-        urls.setdefault(_key(backend.url), backend)
+    match = _matcher(candidates)
     listed: list[Backend] = []
     discarded: list[str] = []
     for item in selection.backends:
-        match = urls.get(_key(item)) if "://" in item else ids.get(item)
-        if match is None:
+        found = match(item)
+        if found is None:
             discarded.append(item)
-        elif match not in listed:
-            listed.append(match)
+        elif found not in listed:
+            listed.append(found)
     if selection.type == "order":
         return listed + [b for b in candidates if b not in listed], discarded
     if selection.type == "allow":
         return [b for b in candidates if b in listed], discarded
     return [b for b in candidates if b not in listed], discarded
+
+
+def selects_unknown_only(known: Sequence[Backend], selection: BackendSelection) -> bool:
+    """Check whether an `allow` selection names only unknown identifiers.
+
+    Such a selection can never yield a candidate, whatever routing does, so
+    the request can be refused as invalid rather than as unavailable. Only
+    identifiers count: URLs may name backends of a registry that is
+    unavailable for now (discovered backends have their URL as identifier),
+    so a selection with a URL is never refused. `order` and `forbid` never
+    empty the candidates on their own, and are never refused.
+
+    Args:
+        known: All backends that the gateway knows for the request's API
+            (e.g., also ones that can't run the request).
+        selection: Client's selection.
+
+    Returns:
+        Whether the selection is `allow`, has no URLs, and none of its items
+        matches a known backend (as in :py:func:`apply_backend_selection`).
+    """
+    if selection.type != "allow" or any("://" in item for item in selection.backends):
+        return False
+    match = _matcher(known)
+    return all(match(item) is None for item in selection.backends)
+
+
+def _matcher(backends: Sequence[Backend]) -> Callable[[str], Backend | None]:
+    """Build the matcher of selection items against backends.
+
+    Items with `://` are URLs and match the backends' (normalized) URLs
+    only; other items match their identifiers only; the first backend with
+    an identifier or URL wins.
+
+    Args:
+        backends: Backends, in order.
+
+    Returns:
+        Function returning the backend that an item matches, if any.
+    """
+    ids: dict[str, Backend] = {}
+    urls: dict[str, Backend] = {}
+    for backend in backends:
+        ids.setdefault(backend.id, backend)
+        urls.setdefault(_key(backend.url), backend)
+
+    def match(item: str) -> Backend | None:
+        """Find the backend of an item.
+
+        Args:
+            item: Backend identifier or URL.
+
+        Returns:
+            The backend, if any.
+        """
+        return urls.get(_key(item)) if "://" in item else ids.get(item)
+
+    return match
