@@ -24,6 +24,9 @@ BODY_PET_2 = {
     "extra_parameter": EXTRA_PARAM_ARG,
 }
 INVALID_ID = "X"
+# FOCA's default size limits of request bodies and URL-encoded form data
+DEFAULT_LIMIT = 10 * 1024 * 1024
+DEFAULT_FORM_LIMIT = 500_000
 
 
 def test_add_pet_200() -> None:
@@ -204,7 +207,7 @@ def test_add_pet_urlencoded_too_large_413() -> None:
     """
     response = requests.post(
         url=f"{PETSTORE_URL}/pets",
-        data=b"a&" * 250_001,
+        data=b"a&" * (DEFAULT_FORM_LIMIT // 2 + 1),
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         timeout=TIMEOUT,
     )
@@ -221,7 +224,7 @@ def test_add_pet_too_large_413() -> None:
     """
     response = requests.post(
         url=f"{PETSTORE_URL}/pets",
-        data=b" " * (10 * 1024 * 1024 + 1),
+        data=b" " * (DEFAULT_LIMIT + 1),
         headers={"Content-Type": "application/json"},
         timeout=TIMEOUT,
     )

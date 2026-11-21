@@ -26,6 +26,9 @@ from foca.testing import Client, request_context
 
 CONFIG = Config()
 LIMIT = 10
+# FOCA's default size limits of request bodies and form data
+DEFAULT_LIMIT = 10 * 1024 * 1024
+DEFAULT_FORM_LIMIT = 500_000
 
 
 def test_add_config_to_connexion_app() -> None:
@@ -222,7 +225,7 @@ def test_removed_server_fields(field: str) -> None:
 def test_max_content_length_default() -> None:
     """Request bodies are limited to 10 MiB by default."""
     cnx_app = create_connexion_app(Config())
-    assert cnx_app.app.config["MAX_CONTENT_LENGTH"] == 10 * 1024 * 1024
+    assert cnx_app.app.config["MAX_CONTENT_LENGTH"] == DEFAULT_LIMIT
 
 
 def test_max_content_length_none() -> None:
@@ -234,7 +237,7 @@ def test_max_content_length_none() -> None:
 def test_max_form_memory_size_default() -> None:
     """Form data is limited to Flask's default of 500 kB by default."""
     cnx_app = create_connexion_app(Config())
-    assert cnx_app.app.config["MAX_FORM_MEMORY_SIZE"] == 500_000
+    assert cnx_app.app.config["MAX_FORM_MEMORY_SIZE"] == DEFAULT_FORM_LIMIT
 
 
 @pytest.mark.parametrize("value", [10, None])
@@ -630,6 +633,30 @@ def test_max_form_memory_size_unset() -> None:
     _assert_too_large(response)
 
 
+def test_max_form_memory_size_above_max_content_length() -> None:
+    """URL-encoded bodies are limited by the lower of both limits."""
+    client = WsgiClient(_limited_app(limit=LIMIT, form_limit=10 * LIMIT))
+    response = client.post("/form", data=b"a&" * LIMIT, content_type=URLENCODED)
+    _assert_too_large(response)
+
+
+def test_max_form_memory_size_multipart_field() -> None:
+    """Non-file fields of multipart bodies over the form limit get `413`.
+
+    Werkzeug checks them while parsing (and each chunk it reads, 64 KiB, so
+    the form limit is above that); files are not limited by it.
+    """
+    form_limit = 100_000
+    client = WsgiClient(_limited_app(limit=None, form_limit=form_limit))
+    response = client.post("/form", data={"a": "x" * (form_limit + 1)})
+    _assert_too_large(response)
+    response = client.post(
+        "/files", data={"f": (io.BytesIO(b"x" * 2 * form_limit), "f.txt")}
+    )
+    assert response.status_code == 200
+    assert response.get_json() == {"f": "x" * 2 * form_limit}
+
+
 def test_max_form_memory_size_added() -> None:
     """URL-encoded bodies are checked if a form limit is added.
 
@@ -782,7 +809,7 @@ class TestMaxFormMemorySizeOperation:
         monkeypatch.setattr(
             "werkzeug.formparser.FormDataParser._parse_urlencoded", fail
         )
-        body = b"a&" * 250_001
+        body = b"a&" * (DEFAULT_FORM_LIMIT // 2 + 1)
         overrides: dict[str, str | bool] = {}
         headers = {}
         if chunked:
