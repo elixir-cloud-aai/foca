@@ -14,7 +14,10 @@ and deployments need to change only if:
   store](#the-plugin-store-limits-namespaces), or they implement a store
   backend of their own;
 - they are WES gateways with plugins, as [plugins get WES runs in a defined
-  shape](#plugins-get-wes-runs-in-a-defined-shape).
+  shape](#plugins-get-wes-runs-in-a-defined-shape);
+- they are gateways that route only some of their backends, or their clients
+  choose backends with `gateway.backends`, as [choices of unknown backends
+  are refused](#choices-of-unknown-backends-are-refused).
 
 WES gateways may also drop workarounds for [backend lists, which now know
 WES](#backend-lists-know-wes), and gateways their own token clients, as
@@ -253,3 +256,25 @@ the URL schemes of the identity provider into `client_credentials`
 of the variables of the client ID and secret, and catch `CredentialsError`
 where they caught their own error. Subclasses of `ServiceEntry` that add
 `audience` themselves keep working, but FOCA now checks it too.
+
+## Choices of unknown backends are refused
+
+A client's [backend choice](plugins.md#per-request-pipelines-and-backends)
+`{"type": "allow", ...}` (tag `gateway.backends`) of identifiers only, none
+of which names a backend of the gateway (e.g., a mistyped identifier), is
+now refused with `400` (problem type `invalid-backends`, "None of the chosen
+backends is known") by `run.route()`, before the `route` phase. Before, it
+ended without a backend, which apps answer as an outage (e.g., proTES with
+`503`), and the client couldn't tell why. Choices with a URL, `order` and
+`forbid` are unchanged.
+
+- Clients that pin requests by identifier get `400` instead of `503` for an
+  unknown identifier: the gateway's configuration has no such backend.
+- Apps that pass only some of their backends to `run.route()` (e.g., those
+  that can run the request) pass the others as `known`
+  (`run.route(candidates, known=others)`), so that an `allow` of one of them
+  still ends without a backend, which they can explain (e.g., proTES's `400`
+  for a TES version that no chosen TES instance supports); otherwise, it is
+  refused as unknown.
+- Apps that store failed runs from `GatewayError.run` get the run of the
+  refusal too.

@@ -105,7 +105,19 @@ choices](configuration/plugins.md#per-request-choices)):
   The selection applies to the candidates after the `route` phase: clients
   can only narrow or reorder the configured and verified backends; listed
   backends that are not candidates are discarded (and recorded, cf.
-  [provenance](#provenance)), never added.
+  [provenance](#provenance)), never added. An `allow` of identifiers only,
+  none of which names a backend of the app (e.g., a mistyped identifier,
+  or that of a backend at the gateway's own URL), is refused with `400`
+  (`invalid-backends`, "None of the chosen backends is known") by
+  `run.route()`, before the `route` phase, instead of ending without a
+  backend (see [Using the engine in apps](#using-the-engine-in-apps)). An
+  `allow` with a URL is never refused, as it may name a backend of a
+  registry that is unavailable for now (discovered backends have their URL
+  as identifier). An `allow` of known backends that routing removes, or
+  that don't accept the request, still ends without a backend (e.g.,
+  `503`). `order` and `forbid` are never refused for unknown items. The
+  `400` tells clients which identifiers the gateway has, even of backends
+  that routing would keep from them, as the service info usually does.
 
 !!! warning "A client pipeline replaces the default pipeline"
 
@@ -945,6 +957,15 @@ if run.final_reason == "outcome_unknown":
     ...  # a backend may have the task: mark it as such, don't retry
 ```
 
+`run.route()` refuses a client's `allow` of unknown identifiers with
+`InvalidSelection` (`400`, cf. [per-request pipelines and
+backends](#per-request-pipelines-and-backends)), with the run (`error.run`)
+for the record of failed runs. Apps that pass only some of their backends
+to `run.route()` (e.g., the ones that can run the request) pass the others
+as `known` (`run.route(candidates, known=others)`), so that an `allow` of
+one of them isn't refused as unknown, but ends without a backend, which
+the app can explain.
+
 The app's client raises `NotAccepted(reason)` when a backend certainly did
 not accept the request (e.g., `connect_error`, `tls_error`, `not_public`,
 `no_credentials`, `http_403`), and `OutcomeUnknown(reason)` when it may have
@@ -1250,7 +1271,7 @@ Gateway errors are problem details with the extension member
 | `rejected` | 400, 403, 409, 413, 422 | a plugin rejected the request |
 | `plugin-step-failed` | 500 | all alternatives of a required step failed |
 | `invalid-pipeline` | 400 | the pipeline tag is invalid or not allowed |
-| `invalid-backends` | 400 | the backends tag is invalid or not allowed |
+| `invalid-backends` | 400 | the backends tag is invalid or not allowed, or an `allow` names only unknown identifiers |
 | `reserved-tag` | 400 | the client set another tag under the reserved prefix, or the tags are no map |
 | `no-backend-available` | 503 | no backend accepted the request |
 | `forward-timeout` | 503 | the forwarding attempts took longer than `forward_timeout` |
