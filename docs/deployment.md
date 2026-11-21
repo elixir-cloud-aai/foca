@@ -90,7 +90,7 @@ The settings, and why they are set:
 | `timeout` | `30` | Workers whose main loop is blocked for 30 seconds are restarted; requests run in threads, so slow requests do not count |
 | `graceful_timeout` | `20` | Seconds that workers get to finish requests on shutdown (e.g., on `SIGTERM` from Kubernetes); keep it below the pod's termination grace period (30 seconds by default), which the chart derives from it |
 | `keepalive` | `100` | Seconds after which idle keep-alive connections are closed; longer than the idle timeouts of proxies in front of the app (60 seconds for ingress-nginx, 90 seconds for Traefik), which would otherwise reuse connections just as Gunicorn closes them (failing requests with `502`) |
-| `limit_request_line`, `limit_request_fields`, `limit_request_field_size` | `4094`, `100`, `8190` | Size limits of the request line and headers (Gunicorn's defaults, set explicitly); the size of bodies is limited by FOCA (`server.max_content_length`, see below) |
+| `limit_request_line`, `limit_request_fields`, `limit_request_field_size` | `4094`, `100`, `8190` | Size limits of the request line and headers (Gunicorn's defaults, set explicitly); the size of bodies is limited by FOCA (`server.max_content_length` and `server.max_form_memory_size`, see below) |
 | `accesslog`, `errorlog` | `None`, `"-"` | No access log, as apps log requests themselves if needed (FOCA logs those of controllers decorated with [`log_traffic`](utilities.md#logging-requests-and-responses)); for a log of all requests, add `--access-logfile -`. Errors go to stderr, like the app's logs |
 | `access_log_format` | Gunicorn's default, then `%({x-request-id}o)s` | For a log of all requests, with their [identifiers](configuration/server.md#request-ids) at the default header |
 | `control_socket_disable` | `True` | No control socket (`gunicornc`, Gunicorn 25.1 or later), which would be created in `$XDG_RUNTIME_DIR` or `$HOME/.gunicorn`, i.e., on the possibly read-only root file system (as in the chart), and log an error at startup if that is not writable |
@@ -137,10 +137,11 @@ Things to keep in mind:
 - **Settings `server.host` and `server.port` do not apply** to the WSGI
   server, which binds to the address and port it is given (`bind`). Keep
   `server.debug` off in production.
-- **Limit request body sizes**, either via
-  [`server.max_content_length`](configuration/server.md) or in the reverse
-  proxy or ingress in front of the app (e.g., `client_max_body_size` in
-  NGINX): FOCA does not limit them by default, and bodies may be read before
+- **Keep request body sizes limited**, via
+  [`server.max_content_length`](configuration/server.md#request-body-size)
+  (by default 10 MiB) and `server.max_form_memory_size` (by default 500 kB
+  for URL-encoded bodies), or in the reverse proxy or ingress in front of the
+  app (e.g., `client_max_body_size` in NGINX): bodies may be read before
   requests are authenticated.
 - **Serve the app behind a reverse proxy** that buffers requests and times
   out slow clients (e.g., ingress-nginx, which buffers request bodies by

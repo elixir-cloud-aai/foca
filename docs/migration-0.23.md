@@ -19,7 +19,12 @@ and deployments need to change only if:
   choose backends with `gateway.backends`, as [choices of unknown backends
   are refused](#choices-of-unknown-backends-are-refused);
 - their clients send values with a trailing newline to [patterns ending in
-  `$`](#patterns-match-at-the-end-only).
+  `$`](#patterns-match-at-the-end-only);
+- they set no `server.max_content_length` and accept request bodies larger
+  than 10 MiB, set it to `null` (as the configuration template did), or
+  accept URL-encoded bodies larger than 500 kB (whatever
+  `server.max_content_length` is), as [request bodies are limited by
+  default](#request-bodies-are-limited-by-default).
 
 WES gateways may also drop workarounds for [backend lists, which now know
 WES](#backend-lists-know-wes), and gateways their own token clients, as
@@ -297,3 +302,28 @@ ended without a backend, which apps answer as an outage (e.g., proTES with
   refused as unknown.
 - Apps that store failed runs from `GatewayError.run` get the run of the
   refusal too.
+
+## Request bodies are limited by default
+
+Request bodies larger than 10 MiB are rejected with `413` by default
+([`server.max_content_length`](configuration/server.md#request-body-size),
+before without a limit), and URL-encoded bodies
+(`application/x-www-form-urlencoded`) larger than 500 kB as well (the new
+setting `server.max_form_memory_size`, Flask's `MAX_FORM_MEMORY_SIZE`, which
+Werkzeug applied to multipart fields only). Bodies are checked before requests
+are authenticated, so that anonymous clients can no longer make the app parse
+bodies of any size (Connexion parses the body of every request, also as a
+form, before it checks the request's token).
+
+- If the app's config sets `server.max_content_length: null` (as the
+  [configuration
+  template](https://github.com/elixir-cloud-aai/foca/blob/dev/templates/config.yaml)
+  did before), its bodies stay unlimited: remove the key, or set a limit
+  (e.g., `10485760`), unless a reverse proxy or ingress limits body sizes.
+- If clients may send larger bodies (e.g., WES runs with attachments, by
+  default up to 32 MiB), set `server.max_content_length` to the largest size
+  you accept, or to `null` if the reverse proxy or ingress in front of the app
+  limits body sizes.
+- If operations accept URL-encoded form data larger than 500 kB, raise
+  `server.max_form_memory_size` (or set it to `null`). Multipart bodies keep
+  Flask's limit of each non-file field, which this setting now configures.

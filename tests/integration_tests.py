@@ -24,6 +24,9 @@ BODY_PET_2 = {
     "extra_parameter": EXTRA_PARAM_ARG,
 }
 INVALID_ID = "X"
+# FOCA's default size limits of request bodies and URL-encoded form data
+DEFAULT_LIMIT = 10 * 1024 * 1024
+DEFAULT_FORM_LIMIT = 500_000
 
 
 def test_add_pet_200() -> None:
@@ -194,3 +197,37 @@ def test_swagger_ui_200() -> None:
     spec = requests.get(url=f"{PETSTORE_URL}/openapi.json", timeout=TIMEOUT)
     assert spec.status_code == 200
     assert spec.json()["info"]["title"] == "Swagger Petstore"
+
+
+def test_add_pet_urlencoded_too_large_413() -> None:
+    """Test `POST /pets` with a URL-encoded body over the default form limit.
+
+    The body is rejected with `413` before it is parsed (default
+    `server.max_form_memory_size`, 500 kB).
+    """
+    response = requests.post(
+        url=f"{PETSTORE_URL}/pets",
+        data=b"a&" * (DEFAULT_FORM_LIMIT // 2 + 1),
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        timeout=TIMEOUT,
+    )
+    assert response.status_code == 413
+    response_data = Error(**response.json())
+    assert response_data.status == 413
+
+
+def test_add_pet_too_large_413() -> None:
+    """Test `POST /pets` with a body over the default size limit.
+
+    The body is rejected with `413` (default `server.max_content_length`,
+    10 MiB).
+    """
+    response = requests.post(
+        url=f"{PETSTORE_URL}/pets",
+        data=b" " * (DEFAULT_LIMIT + 1),
+        headers={"Content-Type": "application/json"},
+        timeout=TIMEOUT,
+    )
+    assert response.status_code == 413
+    response_data = Error(**response.json())
+    assert response_data.status == 413

@@ -8,13 +8,15 @@ server:
   port: 8080
   debug: true
   testing: false
-  max_content_length: 10485760
+  max_content_length: 1048576
+  max_form_memory_size: 100000
   public_url: https://api.example.org/my-app/
 ```
 
 This config would create an application server at `127.0.0.1:8080` with
-Flask's debug mode switched on, rejecting request bodies larger than 10 MiB,
-and with the [public URL](#public-url) `https://api.example.org/my-app`.
+Flask's debug mode switched on, rejecting request bodies larger than 1 MiB
+and URL-encoded form data larger than 100 kB, and with the [public
+URL](#public-url) `https://api.example.org/my-app`.
 
 `host` and `port` only apply to Flask's development server, started with
 `app.run()`. In production, run the app with a WSGI server instead (see
@@ -27,25 +29,49 @@ binds to the address and port it is configured with.
     development; FOCA logs a warning if it is enabled on a host other than a
     loopback address (e.g., `0.0.0.0`).
 
-!!! warning "Request body size"
-    By default, FOCA does not limit the size of request bodies. As bodies may
-    be read (e.g., for request validation) before requests are authenticated,
-    set `max_content_length` (in bytes; Flask's `MAX_CONTENT_LENGTH`) to
-    reject larger bodies with `413`, or limit body sizes in the reverse proxy
-    or ingress in front of the app (e.g., `client_max_body_size` in NGINX).
-    Bodies are checked before requests are handled (e.g., authenticated or
-    validated), also for operations that don't read their body: bodies with a
-    larger declared size (`Content-Length`) are rejected without reading them,
-    and bodies without a declared size (e.g., `Transfer-Encoding: chunked`)
-    are read up to one byte more than the limit to tell whether they are
-    larger. Such bodies are kept in memory for the request, and parsing them
-    (e.g., as form data) may need about as much memory again. Requests with
-    an invalid declared size (not a plain decimal integer) are rejected with
-    `400` without reading their body. This check is middleware: it is the
-    one place of FOCA that reads the raw input of requests (`wsgi.input`)
-    rather than [the snapshot of the current
-    request](../utilities.md#reading-the-current-request), and it moves to
-    ASGI middleware with FOCA's release on ASGI.
+## Request body size
+
+Request bodies may be read (e.g., for request validation) before requests are
+authenticated: Connexion parses the body of every request, also of
+operations without a body, before it checks the request's token. FOCA
+therefore limits the size of request bodies by default, and rejects larger
+bodies with `413` (problem details with the title `Content Too Large`):
+
+| Setting | Default | Limits |
+| --- | --- | --- |
+| `max_content_length` | `10485760` (10 MiB) | all request bodies (Flask's `MAX_CONTENT_LENGTH`) |
+| `max_form_memory_size` | `500000` (500 kB, as in Flask) | form data: whole URL-encoded bodies (`application/x-www-form-urlencoded`), and each non-file field of multipart bodies (`multipart/form-data`) (Flask's `MAX_FORM_MEMORY_SIZE`) |
+
+Sizes are in bytes. The lower limit applies to URL-encoded bodies, which
+Werkzeug parses all at once, without applying Flask's limits of form data.
+Set a limit to `null` to remove it, e.g., `max_content_length: null` if the
+reverse proxy or ingress in front of the app limits body sizes (e.g.,
+`client_max_body_size` in NGINX), or raise it for apps that accept larger
+bodies (e.g., uploads).
+
+!!! warning "Bodies are parsed before authentication"
+    Bodies up to the limits are still read and parsed before requests are
+    authenticated. Without limits (`null`), anonymous clients can make the
+    app read and parse bodies of any size, or URL-encoded bodies up to
+    `max_content_length`, before they are rejected as unauthenticated.
+    Remove a limit only if a reverse proxy or ingress limits body sizes.
+
+Bodies are checked before requests are handled (e.g., authenticated or
+validated), also for operations that don't read their body:
+
+- Bodies with a larger declared size (`Content-Length`) are rejected without
+  reading them.
+- Bodies without a declared size (e.g., `Transfer-Encoding: chunked`) are
+  read up to one byte more than the limit, to tell whether they are larger.
+  Such bodies are kept in memory for the request, and parsing them (e.g., as
+  form data) may need about as much memory again.
+- Requests with an invalid declared size (not a plain decimal integer) are
+  rejected with `400` without reading their body.
+
+This check is middleware: it is the one place of FOCA that reads the raw
+input of requests (`wsgi.input`) rather than [the snapshot of the current
+request](../utilities.md#reading-the-current-request), and it moves to ASGI
+middleware with FOCA's release on ASGI.
 
 ## Public URL
 

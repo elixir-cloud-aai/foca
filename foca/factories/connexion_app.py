@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 # Valid declared sizes of request bodies (`Content-Length`)
 _DECIMAL = re.compile(r"[0-9]+")
 
+# Media type of URL-encoded form data, as parsed by Werkzeug
+_URLENCODED = "application/x-www-form-urlencoded"
+
 # Endpoint of the specification of an API at `/` (Connexion 2 names its
 # blueprint `/`), and the endpoint that Connexion's Swagger UI builds for it
 # instead (from the empty base path, relative to the blueprint); specific to
@@ -104,10 +107,16 @@ def _is_loopback(host: str) -> bool:
 
 
 def _check_body_size() -> None:
-    """Reject request bodies larger than `MAX_CONTENT_LENGTH` (`413`).
+    """Reject request bodies larger than their size limit (`413`).
 
     Registered to run before each request; checks bodies if their size is
     limited (`MAX_CONTENT_LENGTH`, e.g., from `server.max_content_length`).
+    URL-encoded bodies (`application/x-www-form-urlencoded`) are also limited
+    by `MAX_FORM_MEMORY_SIZE` (e.g., from `server.max_form_memory_size`),
+    whichever is lower: Werkzeug parses them at once, applying neither limit
+    of form data (`MAX_FORM_MEMORY_SIZE`, `MAX_FORM_PARTS`), and Connexion
+    parses the form of every request before it authenticates it, also for
+    operations without form bodies.
     Werkzeug rejects bodies with a larger declared size
     (`Content-Length`) only when they are read, and reads bodies without a
     declared size (e.g., chunked) up to the limit only, silently dropping the
@@ -133,12 +142,18 @@ def _check_body_size() -> None:
         foca.errors.BadRequest: The declared size of the request body
             is invalid.
         foca.errors.PayloadTooLarge: The request body is larger
-            than `MAX_CONTENT_LENGTH`.
+            than its size limit.
     """
     # Middleware, exempt from reading the request via `foca.context`
     from flask import request  # noqa: PLC0415
 
     limit = current_app.config["MAX_CONTENT_LENGTH"]
+    # `mimetype` is lowercase, without parameters, as Werkzeug's form parser
+    # gets it
+    if request.mimetype == _URLENCODED:
+        form_limit = current_app.config.get("MAX_FORM_MEMORY_SIZE")
+        if form_limit is not None and (limit is None or form_limit < limit):
+            limit = form_limit
     if limit is None:
         return
     declared = request.environ.get("CONTENT_LENGTH", "").strip(" \t")
@@ -189,8 +204,8 @@ def __add_config_to_connexion_app(
     # replace Flask app settings
     app.app.config["DEBUG"] = conf.debug
     app.app.config["TESTING"] = conf.testing
-    if conf.max_content_length is not None:
-        app.app.config["MAX_CONTENT_LENGTH"] = conf.max_content_length
+    app.app.config["MAX_CONTENT_LENGTH"] = conf.max_content_length
+    app.app.config["MAX_FORM_MEMORY_SIZE"] = conf.max_form_memory_size
     # before Connexion's handling, i.e., before auth and validation; also
     # checks limits set in the Flask config later
     app.app.before_request(_check_body_size)
