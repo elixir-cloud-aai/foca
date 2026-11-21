@@ -6,24 +6,29 @@ from their own API specifications (via `operationId`), under paths of their
 choice, e.g.:
 
 * `GET /tasks/{id}/permissions`: :py:func:`getResourceRoles`
-* `PUT /tasks/{id}/permissions/users/{userId}`: :py:func:`putUserRole`
-* `DELETE /tasks/{id}/permissions/users/{userId}`: :py:func:`deleteUserRole`
+* `PUT /tasks/{id}/permissions/users`: :py:func:`putUserRole`
+* `DELETE /tasks/{id}/permissions/users?user=...`: :py:func:`deleteUserRole`
 * `PUT /tasks/{id}/permissions/groups/{group}`: :py:func:`putGroupRole`
 * `DELETE /tasks/{id}/permissions/groups/{group}`: :py:func:`deleteGroupRole`
 
 The resource is taken from the route of the request: its path up to the last
-path parameter before the subject's (e.g., `/tasks/1` for
-`/tasks/1/permissions/users/alice`), or up to the last path parameter for
-:py:func:`getResourceRoles`. Path parameters may have any names; the subject
-is the last one. Resources without owners are not found, unless the caller is
-an admin and an existence check finds them, so that admins can assign the
-first owner of resources stored before an app adopted ownership. Who may call
-the endpoints is decided by the app's policies, which must be enforced on
-them, as the controllers do not check the caller themselves: apps routing operations
-that do not enforce policies to the controllers do not start, and requests on
-which policies were not enforced (e.g., via wrappers of the controllers, or
-routes added later) are refused. Requests and responses are logged unless
-disabled via config option `security.access_control.log_traffic`.
+path parameter (e.g., `/tasks/1` for `/tasks/1/permissions/users`), or, for
+groups, up to the last path parameter before the group's (e.g., `/tasks/1`
+for `/tasks/1/permissions/groups/devs`). Path parameters may have any names;
+the group is the last one. Users, namespaced by issuer (e.g.,
+`https://login.example.org/oidc/|alice`), are named outside the path, where
+proxies that merge slashes would change them: in the request body to grant
+them a role (`{"user": "...", "role": "..."}`) and in query parameter `user`
+to revoke their roles. Resources without owners are not found, unless the
+caller is an admin and an existence check finds them, so that admins can
+assign the first owner of resources stored before an app adopted ownership.
+Who may call the endpoints is decided by the app's policies, which must be
+enforced on them, as the controllers do not check the caller themselves: apps
+routing operations that do not enforce policies to the controllers do not
+start, and requests on which policies were not enforced (e.g., via wrappers
+of the controllers, or routes added later) are refused. Requests and
+responses are logged unless disabled via config option
+`security.access_control.log_traffic`.
 
 The controllers take an optional existence check as `exists` (cf.
 :py:func:`putUserRole`) and request bodies as `body`, so neither may be the
@@ -123,7 +128,7 @@ class _Route(NamedTuple):
     """Route of a request: its URL rule and the values of its variables.
 
     Attributes:
-        rule: URL rule, e.g., `/tasks/<id>/permissions/users/<userId>`.
+        rule: URL rule, e.g., `/tasks/<id>/permissions/groups/<path:group>`.
         variables: Name and position (start, end) of each variable of the
             rule, in order.
         values: Values of the variables, as routed (i.e., decoded).
@@ -183,10 +188,75 @@ def _get_resource(with_subject: bool) -> str:
     return resource
 
 
-def _get_subject() -> str:
-    """Get the subject of the current request, i.e., its last path parameter."""
+def _get_group() -> str:
+    """Get the group of the current request, i.e., its last path parameter."""
     route = _get_route()
     return str(route.values[route.variables[-1][0]])
+
+
+def _check_user_route() -> None:
+    """Check that the route of a user controller doesn't end in a parameter.
+
+    Before FOCA 0.23.0, the user was the last path parameter (e.g.,
+    `/tasks/{id}/permissions/users/{userId}`); with such a route, the
+    resource would be the path up to the user, on which admins could grant
+    the first owner, so such routes are refused rather than misapplied.
+
+    Raises:
+        RuntimeError: The route ends with a path parameter (possibly followed
+            by slashes), or the request was not routed via a URL rule.
+    """
+    route = _get_route()
+    if route.variables and not route.rule[route.variables[-1][2] :].strip("/"):
+        raise RuntimeError(
+            f"Route '{route.rule}' of a controller for user roles ends with a "
+            "path parameter: name the user in the request body or query "
+            "instead, under a path ending in a fixed segment (e.g., "
+            "'/tasks/{id}/permissions/users')"
+        )
+
+
+# Message for requests that don't name a user as the controllers read it
+_NO_USER = "The request must name a user"
+
+
+def _get_user_from_body(body: Any) -> str:
+    """Get the user from a request body (`{"user": ...}`).
+
+    Args:
+        body: Request body.
+
+    Returns:
+        User identifier.
+
+    Raises:
+        foca.errors.BadRequest: The body is not an object with a user (a
+            non-empty string).
+    """
+    user = body.get("user") if isinstance(body, dict) else None
+    if not isinstance(user, str) or not user:
+        raise BadRequest(f"{_NO_USER} in the request body")
+    return user
+
+
+def _get_user_from_query() -> str:
+    """Get the user from the query parameter `user` of the current request.
+
+    Read from the query string rather than from the arguments of the
+    controller, as Connexion passes the authenticated caller as argument
+    `user` too, replacing a query parameter of that name.
+
+    Returns:
+        User identifier, decoded.
+
+    Raises:
+        foca.errors.BadRequest: The query has no value of `user`, an empty
+            one, or several.
+    """
+    values = current_request().query.getlist("user")
+    if len(values) != 1 or not values[0]:
+        raise BadRequest(f"{_NO_USER} in query parameter 'user', once")
+    return values[0]
 
 
 def _is_manageable(resource: str, exists: Callable[[], bool] | None) -> bool:
@@ -255,6 +325,7 @@ def _put_role(
     subject_type: SubjectType,
     body: Any,
     exists: Callable[[], bool] | None,
+    with_subject: bool,
 ) -> dict[str, str]:
     """Grant a subject the role in the request body, replacing others.
 
@@ -264,6 +335,8 @@ def _put_role(
         body: Request body.
         exists: Function checking whether the resource exists (cf.
             :py:func:`foca.security.access_control.grant_role`).
+        with_subject: Whether the subject is the last path parameter, so
+            that the resource is the path before it.
 
     Returns:
         Subject type, subject and granted role.
@@ -280,7 +353,7 @@ def _put_role(
             owner of the resource, and the role is not `owner`.
     """
     role = _get_role(body)
-    resource = _get_owned_resource(with_subject=True, exists=exists)
+    resource = _get_owned_resource(with_subject=with_subject, exists=exists)
     try:
         grant_role(resource, subject, role, subject_type=subject_type, exists=exists)
     # Messages may name configuration options, so they are only logged
@@ -311,6 +384,7 @@ def _delete_roles(
     subject: str,
     subject_type: SubjectType,
     exists: Callable[[], bool] | None,
+    with_subject: bool,
 ) -> str:
     """Revoke all roles of a subject.
 
@@ -319,6 +393,8 @@ def _delete_roles(
         subject_type: Type of the subject.
         exists: Function checking whether the resource exists (cf.
             :py:func:`foca.security.access_control.revoke_roles`).
+        with_subject: Whether the subject is the last path parameter, so
+            that the resource is the path before it.
 
     Returns:
         The subject.
@@ -329,7 +405,7 @@ def _delete_roles(
         foca.security.access_control.LastOwner: The subject is the last
             owner of the resource.
     """
-    resource = _get_owned_resource(with_subject=True)
+    resource = _get_owned_resource(with_subject=with_subject)
     if not revoke_roles(resource, subject, subject_type=subject_type, exists=exists):
         raise NotFound
     return subject
@@ -407,43 +483,70 @@ def putUserRole(
     exists: Callable[[], bool] | None = None,
     **kwargs: Any,
 ) -> dict[str, str]:
-    """Grant the user of the route the role in the request body.
+    """Grant the user in the request body the role in the request body.
 
     Other roles of `access_control.resource_roles` of the user on the
     resource are replaced (cf.
-    :py:func:`foca.security.access_control.grant_role`).
+    :py:func:`foca.security.access_control.grant_role`). The resource is
+    taken from the route (the path up to its last path parameter).
 
     Args:
-        body: Request body, with the role to grant (`{"role": "owner"}`).
+        body: Request body, with the user and the role to grant (e.g.,
+            `{"user": "https://login.example.org/oidc/|bob", "role":
+            "owner"}`).
         exists: Function checking whether the resource exists, so that a
             role granted while the resource is deleted is revoked again, and
             admins can assign the first owner of a resource without owners;
             passed by apps that route to a wrapper of the controller. Not
             checked if `None`.
         **kwargs: Path parameters and further arguments that Connexion
-            passes; unused, as resource and user are taken from the route.
+            passes (e.g., the caller as `user`); unused, as the resource is
+            taken from the route.
 
     Returns:
         Subject type (`user`), user identifier and granted role.
+
+    Raises:
+        foca.errors.BadRequest: The body names no user or no role.
+        RuntimeError: The route ends with a path parameter (e.g., the
+            user's, as before FOCA 0.23.0) or has none identifying the
+            resource; served as `500`.
     """
-    return _put_role(_get_subject(), "user", body, exists)
+    _check_user_route()
+    user = _get_user_from_body(body)
+    return _put_role(user, "user", body, exists, with_subject=False)
 
 
 @log_traffic_if(_permissions_traffic_logged)
 @_require_enforcement
 def deleteUserRole(exists: Callable[[], bool] | None = None, **kwargs: Any) -> str:
-    """Revoke the roles of the user of the route on the resource.
+    """Revoke the roles of the user in the query on the resource.
+
+    The user is the value of query parameter `user`, read from the query
+    string, as Connexion passes the caller as argument `user` on secured
+    operations, replacing the query parameter; declare the parameter in the
+    specification. The resource is taken from the route (the path up to its
+    last path parameter).
 
     Args:
         exists: Function checking whether the resource exists, if an owner
             role removed concurrently is restored (cf. :py:func:`putUserRole`).
         **kwargs: Path parameters and further arguments that Connexion
-            passes; unused, as resource and user are taken from the route.
+            passes (e.g., the caller as `user`); unused, as resource and user
+            are taken from the request.
 
     Returns:
         User identifier.
+
+    Raises:
+        foca.errors.BadRequest: The query names no user, an empty one, or
+            several.
+        RuntimeError: The route ends with a path parameter or has none
+            identifying the resource (cf. :py:func:`putUserRole`).
     """
-    return _delete_roles(_get_subject(), "user", exists)
+    _check_user_route()
+    user = _get_user_from_query()
+    return _delete_roles(user, "user", exists, with_subject=False)
 
 
 @log_traffic_if(_permissions_traffic_logged)
@@ -476,7 +579,7 @@ def putGroupRole(
         foca.errors.Forbidden: The caller is neither a member of the
             group nor an admin.
     """
-    group = _get_subject()
+    group = _get_group()
     if group not in get_current_group_values() and not is_admin():
         # The group is the client's value, so it is logged at DEBUG only
         logger.info(
@@ -485,7 +588,7 @@ def putGroupRole(
         )
         logger.debug("Role not granted to %s", _describe("group", group))
         raise Forbidden
-    return _put_role(group, "group", body, exists)
+    return _put_role(group, "group", body, exists, with_subject=True)
 
 
 @log_traffic_if(_permissions_traffic_logged)
@@ -505,7 +608,7 @@ def deleteGroupRole(exists: Callable[[], bool] | None = None, **kwargs: Any) -> 
     Returns:
         The group.
     """
-    return _delete_roles(_get_subject(), "group", exists)
+    return _delete_roles(_get_group(), "group", exists, with_subject=True)
 
 
 _CONTROLLERS = (

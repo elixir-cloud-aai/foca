@@ -1,13 +1,17 @@
 # Migrating to 0.23.0
 
 FOCA 0.23.0 namespaces subjects by issuer also with a single trusted issuer,
-lets patches of API specifications remove keys, the permissions API reports
+names users outside the path in the endpoints for managing roles, lets
+patches of API specifications remove keys, the permissions API reports
 invalid fields, and the plugin store limits the size of each namespace. Apps
 and deployments need to change only if:
 
 - they use access control or store subjects (e.g., owners), as [subjects are
   always namespaced by issuer](#subjects-are-always-namespaced-by-issuer);
 - their [patches set values to `null`](#null-in-patches-removes-keys);
+- they route operations to `putUserRole` or `deleteUserRole`, as [the
+  endpoints for managing roles name users outside the
+  path](#the-endpoints-for-managing-roles-name-users-outside-the-path);
 - their tests or clients expect the [permissions API's plain `400`
   responses](#the-permissions-api-reports-invalid-fields);
 - their plugins keep more than 16 MiB in the [plugin
@@ -42,11 +46,10 @@ and store for users:
   roles](access-control.md#endpoints-for-managing-roles)) name users as
   `user:<namespace>|<subject>`, and the `sub` of owners in documents (cf.
   `set_owner_field()`) is namespaced as well;
-- users in the paths of the endpoints for managing roles are namespaced, so
-  they contain slashes with issuers as namespaces: route them with
-  `format: path`, and match them with `*` in rules (e.g., `/pets/:id/permissions/users/*`
-  instead of `.../users/:userId`; see the example there), or set namespaces
-  without slashes.
+- users named to the endpoints for managing roles are namespaced, so they
+  contain slashes and `|` with issuers as namespaces; the endpoints therefore
+  [name users outside the
+  path](#the-endpoints-for-managing-roles-name-users-outside-the-path).
 
 Stored bare users then no longer apply, e.g., owners and admins granted via
 the permissions API lose their roles, and the app refuses to start while
@@ -146,6 +149,73 @@ Files of `path` merged into the first one keep `null` as a value; to let them
 remove keys, too, set `merge_null_removes: true` for the specification (see
 [merging specification
 files](configuration/api.md#merging-specification-files)).
+
+## The endpoints for managing roles name users outside the path
+
+The ready-made controllers `putUserRole` and `deleteUserRole` of
+`foca.security.access_control.ownership_server` (cf. [endpoints for managing
+roles](access-control.md#endpoints-for-managing-roles)) take the user from
+the request body (`{"user": "...", "role": "..."}`) and from the query
+parameter `user`, instead of the last path parameter. Users are namespaced by
+issuer (e.g., `https://login.example.org/oidc/|alice`), so in paths they
+needed `format: path` routes and `*` in rules, and proxies that merge slashes
+(e.g., nginx's `merge_slashes`) or decode paths changed them. The resource is
+still taken from the path: up to its last path parameter. The group
+controllers are unchanged.
+
+Before upgrading, change the operations routed to the user controllers (and to
+aliases or wrappers of them), their rules and their clients, e.g., for the
+operations of the [petstore-access-control
+example](https://github.com/elixir-cloud-aai/foca/tree/dev/examples/petstore-access-control):
+
+1. In the API specification, drop the user's path parameter: route
+   `PUT /pets/{id}/permissions/users` to `putUserRole`, with `user` (a
+   string) next to `role` in the request body, and
+   `DELETE /pets/{id}/permissions/users` to `deleteUserRole`, with a
+   required query parameter `user` (a string):
+
+    ```yaml
+    /pets/{id}/permissions/users:
+      put:
+        operationId: putPetUserRole
+        parameters:
+          - {name: id, in: path, required: true, schema: {type: integer}}
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user, role]
+                properties:
+                  user: {type: string, minLength: 1}
+                  role: {type: string, enum: [owner, maintainer]}
+      delete:
+        operationId: deletePetUserRole
+        parameters:
+          - {name: id, in: path, required: true, schema: {type: integer}}
+          - {name: user, in: query, required: true, schema: {type: string, minLength: 1}}
+    ```
+
+    Operations still routed to the user controllers (or to aliases or
+    wrappers of them) under paths ending in a path parameter, such as the
+    user's, are refused with `500` (and a `RuntimeError` in the log), as the
+    controllers would otherwise take the path up to the user as the
+    resource.
+
+2. In the rules, match the new paths, without `*`, e.g.,
+   `[p, owner, "/pets/:id/permissions/users", "(PUT)|(DELETE)"]` instead of
+   `[p, owner, "/pets/:id/permissions/users/*", "(PUT)|(DELETE)"]`.
+3. In wrappers of the controllers, don't take the user from the arguments:
+   on secured operations, Connexion passes the caller as `user`, replacing
+   the query parameter, so `kwargs["user"]` may be either. Pass the
+   arguments on as before, and get the caller from `get_current_subject()`.
+4. In clients, send the user in the body to grant a role, and percent-encoded
+   in the query to revoke the roles, e.g.,
+   `DELETE /pets/0/permissions/users?user=https%3A%2F%2Flogin.example.org%2Foidc%2F%7Cbob`.
+
+The path variants are gone without a transition period, as FOCA is not yet at
+1.0.
 
 ## The permissions API reports invalid fields
 
