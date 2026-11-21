@@ -17,7 +17,9 @@ and deployments need to change only if:
   shape](#plugins-get-wes-runs-in-a-defined-shape);
 - they are gateways that route only some of their backends, or their clients
   choose backends with `gateway.backends`, as [choices of unknown backends
-  are refused](#choices-of-unknown-backends-are-refused).
+  are refused](#choices-of-unknown-backends-are-refused);
+- their clients send values with a trailing newline to [patterns ending in
+  `$`](#patterns-match-at-the-end-only).
 
 WES gateways may also drop workarounds for [backend lists, which now know
 WES](#backend-lists-know-wes), and gateways their own token clients, as
@@ -223,6 +225,23 @@ new limits [`plugins.attachments`](configuration/plugins.md#attachments)
   tasks: `tags=` is no longer needed (passing it still works).
 - Raise `plugins.attachments` before upgrading if runs may have more or
   larger files.
+
+## Patterns match at the end only
+
+A `$` in a `pattern` of a request body or parameter now matches only at the
+end of the value, as in ECMA 262, to which JSON Schema and OpenAPI refer (see
+[stricter request checks](configuration/api.md#stricter-request-checks)).
+Before, it also matched before a newline at the end, as in Python, so that,
+e.g., `^[0-9a-f]{24}$` accepted `"<24 hex digits>\n"`, and controllers that
+parsed such values further could fail with `500`. Requests with such values
+are now refused with `400`, naming the field (`pattern-mismatch`).
+
+- Clients that send values with a trailing newline to such patterns (e.g.,
+  identifiers read from a file without stripping them) must strip it.
+- Apps may drop their own checks of such values (e.g., `re.fullmatch()` of
+  page tokens in controllers).
+- Apps with a custom `body` or `parameter` validator in `validator_map`
+  check bodies or parameters as their validator does, not with FOCA's check.
 
 ## Backend lists know WES
 
