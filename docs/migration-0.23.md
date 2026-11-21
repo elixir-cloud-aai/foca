@@ -19,7 +19,7 @@ and deployments need to change only if:
   choose backends with `gateway.backends`, as [choices of unknown backends
   are refused](#choices-of-unknown-backends-are-refused);
 - their clients send values with a trailing newline to [patterns ending in
-  `$`](#patterns-match-at-the-end-only).
+  `$`](#patterns-match-at-the-end-only);
 - they set no `server.max_content_length` and accept request bodies larger
   than 10 MiB, or URL-encoded bodies larger than 500 kB, as [request bodies
   are limited by default](#request-bodies-are-limited-by-default).

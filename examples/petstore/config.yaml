@@ -4,6 +4,8 @@ server:
     # Debug mode exposes an interactive debugger; local development only
     debug: False
     testing: False
+    # Size limits of request bodies and URL-encoded form data: FOCA's
+    # defaults (10 MiB, 500 kB), as the integration tests expect
 
 security:
     auth:

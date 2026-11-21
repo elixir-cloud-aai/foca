@@ -49,27 +49,29 @@ reverse proxy or ingress in front of the app limits body sizes (e.g.,
 `client_max_body_size` in NGINX), or raise it for apps that accept larger
 bodies (e.g., uploads).
 
-!!! warning "Unlimited request bodies"
-    Without `max_content_length`, anonymous clients can make the app read and
-    parse bodies of any size before they are rejected as unauthenticated.
-    Remove the limit only if a reverse proxy or ingress limits body sizes.
+!!! warning "Bodies are parsed before authentication"
+    Bodies up to the limits are still read and parsed before requests are
+    authenticated. Without limits (`null`), anonymous clients can make the
+    app read and parse bodies of any size, or URL-encoded bodies up to
+    `max_content_length`, before they are rejected as unauthenticated.
+    Remove a limit only if a reverse proxy or ingress limits body sizes.
 
 Bodies are checked before requests are handled (e.g., authenticated or
-validated), also for operations that don't read their body: bodies with a
-larger declared size (`Content-Length`) are rejected without reading them,
-and bodies without a declared size (e.g., `Transfer-Encoding: chunked`)
-are read up to one byte more than the limit to tell whether they are
-larger. Such bodies are kept in memory for the request, and parsing them
-(e.g., as form data) may need about as much memory again. Requests with
-an invalid declared size (not a plain decimal integer) are rejected with
-`400` without reading their body. This check is middleware: it is the
-one place of FOCA that reads the raw input of requests (`wsgi.input`)
-rather than [the snapshot of the current
-request](../utilities.md#reading-the-current-request), and it moves to
-ASGI middleware with FOCA's release on ASGI.
+validated), also for operations that don't read their body:
 
-Bodies up to the limits are still read and parsed before requests are
-authenticated.
+- Bodies with a larger declared size (`Content-Length`) are rejected without
+  reading them.
+- Bodies without a declared size (e.g., `Transfer-Encoding: chunked`) are
+  read up to one byte more than the limit, to tell whether they are larger.
+  Such bodies are kept in memory for the request, and parsing them (e.g., as
+  form data) may need about as much memory again.
+- Requests with an invalid declared size (not a plain decimal integer) are
+  rejected with `400` without reading their body.
+
+This check is middleware: it is the one place of FOCA that reads the raw
+input of requests (`wsgi.input`) rather than [the snapshot of the current
+request](../utilities.md#reading-the-current-request), and it moves to ASGI
+middleware with FOCA's release on ASGI.
 
 ## Public URL
 
