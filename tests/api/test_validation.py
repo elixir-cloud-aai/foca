@@ -3,6 +3,7 @@
 import gc
 import json
 import logging
+import re
 import weakref
 from pathlib import Path
 from typing import Any, ClassVar, NoReturn
@@ -12,8 +13,10 @@ import pytest
 import yaml
 from connexion import App
 from connexion.decorators.validation import RequestBodyValidator
+from connexion.json_schema import Draft4RequestValidator
 from connexion.resolver import Resolution
 from flask import Flask
+from jsonschema.validators import extend
 
 from foca.api import validation
 from foca.api.register_openapi import register_openapi
@@ -21,6 +24,8 @@ from foca.api.validation import (
     BodyValidator,
     ParameterValidator,
     StrictParametersResolver,
+    _end_anchored,
+    _has_end_anchor,
     _has_unpaired_surrogates,
     _parameter_errors,
 )
@@ -131,6 +136,11 @@ SPEC: dict[str, Any] = {
                             "items": {"type": "integer", "minimum": 1},
                         },
                     },
+                    {
+                        "name": "code",
+                        "in": "query",
+                        "schema": {"type": "string", "pattern": "^[0-9a-f]{4}$"},
+                    },
                 ],
                 "requestBody": {
                     "content": {
@@ -142,6 +152,7 @@ SPEC: dict[str, Any] = {
                                 "properties": {
                                     "id": {"type": "string", "readOnly": True},
                                     "name": {"type": "string", "maxLength": 3},
+                                    "slug": {"type": "string", "pattern": "^[a-z]+$"},
                                     "url": {"type": "string", "format": "uri"},
                                     "organization": {
                                         "type": "object",
@@ -278,6 +289,10 @@ def checkKey(api_key: str, required_scopes: Any = None) -> dict[str, str] | None
         Token information, if the key is valid.
     """
     return {"sub": "a"} if api_key == "good" else None
+
+
+# Schema validator of an app for bodies
+CustomSchemaValidator = extend(Draft4RequestValidator, {})
 
 
 class CustomBodyValidator(RequestBodyValidator):
@@ -427,6 +442,138 @@ class TestFormats:
         client = Client(_create_app(tmp_path))
         assert client.get("/filtered?since=yesterday").status_code == 400
         assert client.get("/filtered?since=2026-01-31T12:00:00Z").status_code == 200
+
+
+class TestPatterns:
+    """Tests of patterns, whose `$` matches only at the end, as in ECMA 262."""
+
+    URL = "/things/abc?tag=t"
+    VALID: ClassVar[dict[str, str]] = {"name": "abc", "url": "https://example.org"}
+
+    def test_valid(self, tmp_path: Path) -> None:
+        """Values matching their patterns are accepted."""
+        client = Client(_create_app(tmp_path))
+        response = client.put(
+            "/things/abc?tag=t&code=0a1b", json={**self.VALID, "slug": "abc"}
+        )
+        assert response.status_code == 200
+
+    def test_query(self, tmp_path: Path) -> None:
+        """A trailing newline doesn't match `$` in a query parameter."""
+        client = Client(_create_app(tmp_path))
+        response = client.put(self.URL + "&code=0a1b%0A", json=self.VALID)
+        assert response.status_code == 400
+        data = response.json()
+        assert data["detail"].startswith("'0a1b\\n' does not match '^[0-9a-f]{4}$'")
+        assert data["errors"] == [
+            {
+                "detail": "Must match the pattern '^[0-9a-f]{4}$'.",
+                "parameter": "code",
+                "code": "pattern-mismatch",
+            }
+        ]
+
+    def test_path(self, tmp_path: Path) -> None:
+        """A trailing newline doesn't match `$` in a path parameter."""
+        client = Client(_create_app(tmp_path))
+        response = client.put("/things/abc%0A?tag=t", json=self.VALID)
+        assert response.status_code == 400
+        assert [e["parameter"] for e in response.json()["errors"]] == ["thingId"]
+
+    def test_body(self, tmp_path: Path) -> None:
+        """A trailing newline doesn't match `$` in a field of the body."""
+        client = Client(_create_app(tmp_path))
+        response = client.put(self.URL, json={**self.VALID, "slug": "abc\n"})
+        assert response.status_code == 400
+        data = response.json()
+        assert data["detail"].startswith("'abc\\n' does not match '^[a-z]+$'")
+        assert [(e["pointer"], e["code"]) for e in data["errors"]] == [
+            ("#/slug", "pattern-mismatch")
+        ]
+
+    def test_body_and_parameters(self, tmp_path: Path) -> None:
+        """Parameters checked after an invalid body use the same patterns."""
+        client = Client(_create_app(tmp_path))
+        response = client.put(
+            "/things/abc%0A?tag=t&code=0a1b%0A", json={**self.VALID, "slug": "a\n"}
+        )
+        assert response.status_code == 400
+        assert [
+            e.get("pointer") or e["parameter"] for e in response.json()["errors"]
+        ] == ["#/slug", "code", "thingId"]
+
+    def test_after_first_parameter(self, tmp_path: Path) -> None:
+        """Parameters after the first invalid one use the same patterns."""
+        client = Client(_create_app(tmp_path))
+        response = client.put("/things/abc?code=0a1b%0A", json=self.VALID)
+        assert response.status_code == 400
+        assert [e["parameter"] for e in response.json()["errors"]] == ["tag", "code"]
+
+    @pytest.mark.parametrize(
+        ("pattern", "expected"),
+        [
+            ("^a$", "^a\\Z"),
+            ("a$|b$", "a\\Z|b\\Z"),
+            ("(a$)", "(a\\Z)"),
+            ("^a\\$", "^a\\$"),
+            ("^a\\\\$", "^a\\\\\\Z"),
+            ("^[$]$", "^[$]\\Z"),
+            ("^[^$]$", "^[^$]\\Z"),
+            ("^[]$]$", "^[]$]\\Z"),
+            ("^[^]$]$", "^[^]$]\\Z"),
+            ("^[a\\]$]$", "^[a\\]$]\\Z"),
+            ("^[[$]$", "^[[$]\\Z"),
+            ("^a", "^a"),
+            ("", ""),
+            ("a\\", "a\\"),
+        ],
+    )
+    def test_end_anchored(self, pattern: str, expected: str) -> None:
+        r"""Only anchors `$` become `\Z`, not escaped ones or those in sets."""
+        assert _end_anchored(pattern) == expected
+
+    @pytest.mark.parametrize(
+        ("pattern", "value", "matches"),
+        [
+            ("^a$", "a", True),
+            ("^a$", "a\n", False),
+            ("^[$]$", "$", True),
+            ("^[]$]$", "]", True),
+            ("^[]$]$", "]\n", False),
+            ("^a\\$", "a$", True),
+            ("a", "ba\n", True),
+        ],
+    )
+    def test_end_anchored_matches(
+        self, pattern: str, value: str, matches: bool
+    ) -> None:
+        """Translated patterns match as in ECMA 262."""
+        assert bool(re.search(_end_anchored(pattern), value)) is matches
+
+    @pytest.mark.parametrize(
+        ("schema", "expected"),
+        [
+            ({"type": "string", "pattern": "^a$"}, True),
+            ({"type": "string", "pattern": "^a"}, False),
+            ({"type": "array", "items": {"pattern": "a$"}}, True),
+            ({"anyOf": [{"type": "integer"}, {"pattern": "a$"}]}, True),
+            ({"properties": {"pattern": {"type": "string"}}}, False),
+            ({"type": "string"}, False),
+        ],
+    )
+    def test_has_end_anchor(self, schema: dict[str, Any], expected: bool) -> None:
+        """Schemas are searched for patterns with `$`, also nested ones."""
+        assert _has_end_anchor(schema) is expected
+
+    def test_custom_body_validator(self) -> None:
+        """A validator class passed to the body validator is kept."""
+        validator = BodyValidator(
+            {"type": "string"},
+            ["application/json"],
+            MagicMock(),
+            validator=CustomSchemaValidator,
+        )
+        assert isinstance(validator.validator, CustomSchemaValidator)
 
 
 class TestExtraParameters:

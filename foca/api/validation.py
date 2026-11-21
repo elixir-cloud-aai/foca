@@ -8,6 +8,10 @@ r"""Stricter checks of requests than those of Connexion 2.
   jsonschema only does with optional packages. Importing this module registers
   them on jsonschema's format checker of Draft 4, which Connexion uses, for the
   whole process.
+- Patterns (`pattern`) of bodies and parameters match `$` only at the end of
+  values, as in ECMA 262, to which JSON Schema and OpenAPI refer, not also
+  before a newline at the end, as in Python (e.g., `^[0-9a-f]{24}$` refuses
+  `"<24 hex digits>\n"`). Patterns are Python regular expressions otherwise.
 - Query parameters of operations without parameters are refused with
   `strict_validation`, as Connexion only checks them for operations with
   parameters.
@@ -24,9 +28,10 @@ To be revisited when moving to Connexion 3 (#188).
 """
 
 import logging
-from collections.abc import Callable
+import re
+from collections.abc import Callable, Iterator
 from contextvars import ContextVar
-from functools import wraps
+from functools import lru_cache, wraps
 from typing import Any
 from weakref import ReferenceType, WeakKeyDictionary, ref
 
@@ -38,9 +43,11 @@ from connexion.decorators.validation import (
     TypeValidationError,
     coerce_type,
 )
+from connexion.json_schema import Draft4RequestValidator
 from connexion.resolver import Resolution, Resolver
 from connexion.utils import is_null, is_nullable
-from jsonschema import Draft4Validator, draft4_format_checker
+from jsonschema import Draft4Validator, ValidationError, draft4_format_checker
+from jsonschema.validators import extend
 
 from foca.context import current_request
 from foca.errors import (
@@ -61,6 +68,102 @@ for _name, _check in (
     ("uri", is_uri),
 ):
     Draft4Validator.FORMAT_CHECKER.checks(_name)(_check)
+
+
+@lru_cache(maxsize=1024)
+def _end_anchored(pattern: str) -> str:
+    r"""Make the anchors `$` of a pattern match only at the end of strings.
+
+    In Python, `$` also matches before a newline at the end of a string, in
+    ECMA 262 only at the end. Anchors are replaced by `\Z`; escaped dollar
+    signs (`\$`) and those in sets (e.g., `[$]`) are kept. Sets are read as
+    by Python, where a `]` first in a set (after an optional `^`) is literal.
+
+    Args:
+        pattern: Regular expression, e.g., of a JSON Schema `pattern`.
+
+    Returns:
+        The regular expression, with the anchors replaced.
+    """
+    parts: list[str] = []
+    in_set = False
+    index = 0
+    while index < len(pattern):
+        char = pattern[index]
+        if char == "\\":
+            # An escape, with the escaped character
+            parts.append(pattern[index : index + 2])
+            index += 2
+            continue
+        index += 1
+        if in_set:
+            in_set = char != "]"
+        elif char == "[":
+            in_set = True
+            start = index
+            if pattern.startswith("^", index):
+                index += 1
+            if pattern.startswith("]", index):
+                index += 1
+            char += pattern[start:index]
+        elif char == "$":
+            char = r"\Z"
+        parts.append(char)
+    return "".join(parts)
+
+
+def _pattern(
+    validator: Any, pattern: str, instance: Any, schema: dict[str, Any]
+) -> Iterator[ValidationError]:
+    """Check the JSON Schema keyword `pattern`, with `$` as in ECMA 262.
+
+    As jsonschema's check of `pattern`, with the same message, but `$` only
+    matches at the end of the string (cf. :py:func:`_end_anchored`).
+
+    Args:
+        validator: Validator checking the instance.
+        pattern: Value of the keyword.
+        instance: Value checked.
+        schema: Schema with the keyword.
+
+    Yields:
+        An error, if the instance is a string that doesn't match.
+    """
+    if validator.is_type(instance, "string") and not re.search(
+        _end_anchored(pattern), instance
+    ):
+        yield ValidationError(f"{instance!r} does not match {pattern!r}")
+
+
+# Validators of the schemas of bodies (Connexion's, by default) and of
+# parameters, with FOCA's check of `pattern`
+_BodySchemaValidator = extend(Draft4RequestValidator, {"pattern": _pattern})
+_ParameterSchemaValidator = extend(Draft4Validator, {"pattern": _pattern})
+
+
+def _has_end_anchor(schema: object) -> bool:
+    """Check a schema for patterns with a `$`, also in nested schemas.
+
+    Without recursion, as schemas can be nested deeply. May find false
+    positives (e.g., a `$` in an example), which only cost another check.
+
+    Args:
+        schema: Schema, or a value in it.
+
+    Returns:
+        Whether a `pattern` with a `$` is found.
+    """
+    pending = [schema]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, dict):
+            pattern = value.get("pattern")
+            if isinstance(pattern, str) and "$" in pattern:
+                return True
+            pending.extend(value.values())
+        elif isinstance(value, list):
+            pending.extend(value)
+    return False
 
 
 def _has_unpaired_surrogates(data: object) -> bool:
@@ -106,8 +209,38 @@ class BodyValidator(RequestBodyValidator):
 
     Collects all invalid fields of bodies that don't match their schema, and,
     for operations whose parameters FOCA's `ParameterValidator` checks, those
-    of the parameters too.
+    of the parameters too. Checks patterns with `$` as in ECMA 262 (cf.
+    :py:func:`_pattern`), unless another validator class is passed.
     """
+
+    def __init__(
+        self,
+        schema: dict[str, Any],
+        consumes: list[str],
+        api: Any,
+        is_null_value_valid: bool = False,
+        validator: Any = None,
+        strict_validation: bool = False,
+    ) -> None:
+        """Create a validator, as Connexion's.
+
+        Args:
+            schema: Schema of the body.
+            consumes: Media types of the operation.
+            api: API of the operation.
+            is_null_value_valid: Whether `null` is accepted.
+            validator: Validator class for the schema; by default Connexion's,
+                with FOCA's check of `pattern`.
+            strict_validation: Whether unknown parameters are refused.
+        """
+        super().__init__(
+            schema,
+            consumes,
+            api,
+            is_null_value_valid,
+            validator=validator or _BodySchemaValidator,
+            strict_validation=strict_validation,
+        )
 
     def __call__(self, function: Callable[..., Any]) -> Callable[..., Any]:
         """Wrap a function with the validation of the body.
@@ -259,8 +392,39 @@ def _parameter_errors(
     if schema.get("type") == "file":
         return []
     schema = {key: item for key, item in schema.items() if key != "required"}
-    validator = Draft4Validator(schema, format_checker=draft4_format_checker)
+    validator = _ParameterSchemaValidator(schema, format_checker=draft4_format_checker)
     return schema_field_errors(validator.iter_errors(converted), parameter=name)
+
+
+def _pattern_reason(
+    parameter_type: str, value: Any, param: dict[str, Any]
+) -> str | None:
+    """Check the patterns of a parameter that Connexion accepted.
+
+    Connexion checks patterns as Python does, where `$` also matches before a
+    newline at the end; FOCA checks parameters with a `$` in a pattern again,
+    as in ECMA 262 (cf. :py:func:`_pattern`).
+
+    Args:
+        parameter_type: Location of the parameter, e.g., `query`.
+        value: Value of the parameter in the request, if any.
+        param: Parameter object of the specification.
+
+    Returns:
+        The validator's message, as Connexion's reason, if a pattern doesn't
+        match, otherwise `None`.
+    """
+    if value is None or (is_nullable(param) and is_null(value)):
+        return None
+    schema = param.get("schema", param)
+    if schema.get("type") == "file" or not _has_end_anchor(schema):
+        return None
+    # Converted by Connexion already, without error
+    converted = coerce_type(param, value, parameter_type, param["name"])
+    schema = {key: item for key, item in schema.items() if key != "required"}
+    validator = _ParameterSchemaValidator(schema, format_checker=draft4_format_checker)
+    error = next(iter(validator.iter_errors(converted)), None)
+    return None if error is None else str(error)
 
 
 class _Reason(str):
@@ -321,7 +485,7 @@ class ParameterValidator(ConnexionParameterValidator):
         else:
             error = ConnexionParameterValidator.validate_parameter(
                 parameter_type, value, param, param_name
-            )
+            ) or _pattern_reason(parameter_type, value, param)
             if not error:
                 return None
             reason = _Reason(error)
