@@ -21,7 +21,8 @@ and deployments need to change only if:
 - their clients send values with a trailing newline to [patterns ending in
   `$`](#patterns-match-at-the-end-only);
 - they set no `server.max_content_length` and accept request bodies larger
-  than 10 MiB, or they accept URL-encoded bodies larger than 500 kB (whatever
+  than 10 MiB, set it to `null` (as the configuration template did), or
+  accept URL-encoded bodies larger than 500 kB (whatever
   `server.max_content_length` is), as [request bodies are limited by
   default](#request-bodies-are-limited-by-default).
 
@@ -314,6 +315,11 @@ are authenticated, so that anonymous clients can no longer make the app parse
 bodies of any size (Connexion parses the body of every request, also as a
 form, before it checks the request's token).
 
+- If the app's config sets `server.max_content_length: null` (as the
+  [configuration
+  template](https://github.com/elixir-cloud-aai/foca/blob/dev/templates/config.yaml)
+  did before), its bodies stay unlimited: remove the key, or set a limit
+  (e.g., `10485760`), unless a reverse proxy or ingress limits body sizes.
 - If clients may send larger bodies (e.g., WES runs with attachments, by
   default up to 32 MiB), set `server.max_content_length` to the largest size
   you accept, or to `null` if the reverse proxy or ingress in front of the app
