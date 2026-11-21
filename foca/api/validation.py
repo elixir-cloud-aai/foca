@@ -110,9 +110,12 @@ def _end_anchored(pattern: str) -> str:
                 index += 1
             char += pattern[start:index]
         elif char == "(" and pattern.startswith("?#", index):
-            # A comment, which ends at the first `)`, kept as it is
-            end = pattern.find(")", index)
-            end = len(pattern) if end == -1 else end + 1
+            # A comment, kept as it is; ends at the first `)` that isn't
+            # escaped, as in Python
+            end = index + 2
+            while end < len(pattern) and pattern[end] != ")":
+                end += 2 if pattern[end] == "\\" else 1
+            end = min(end + 1, len(pattern))
             char += pattern[index:end]
             index = end
         elif char == "$":

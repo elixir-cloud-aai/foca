@@ -12,6 +12,9 @@ from unittest.mock import MagicMock
 import pytest
 import yaml
 from connexion import App
+from connexion.decorators.validation import (
+    ParameterValidator as ConnexionParameterValidator,
+)
 from connexion.decorators.validation import RequestBodyValidator
 from connexion.json_schema import Draft4RequestValidator
 from connexion.resolver import Resolution
@@ -526,6 +529,7 @@ class TestPatterns:
             ("^a", "^a"),
             ("(?#[$)a$", "(?#[$)a\\Z"),
             ("a(?#$", "a(?#$"),
+            ("(?#\\)[)$", "(?#\\)[)\\Z"),
             ("", ""),
             ("a\\", "a\\"),
         ],
@@ -726,6 +730,17 @@ class TestValidatorMap:
         """Validators of apps win."""
         app = _create_app(tmp_path, validator_map={"body": CustomBodyValidator})
         assert _post(app, "{}").status_code == 500
+
+    def test_custom_parameter_validator(self, tmp_path: Path) -> None:
+        """Parameter validators of apps check patterns as they do."""
+        app = _create_app(
+            tmp_path, validator_map={"parameter": ConnexionParameterValidator}
+        )
+        response = Client(app).put(
+            "/things/abc?tag=t&code=0a1b%0A",
+            json={"name": "abc", "url": "https://example.org"},
+        )
+        assert response.status_code == 200
 
 
 class TestDate:
