@@ -21,8 +21,9 @@ and deployments need to change only if:
 - their clients send values with a trailing newline to [patterns ending in
   `$`](#patterns-match-at-the-end-only);
 - they set no `server.max_content_length` and accept request bodies larger
-  than 10 MiB, or URL-encoded bodies larger than 500 kB, as [request bodies
-  are limited by default](#request-bodies-are-limited-by-default).
+  than 10 MiB, or they accept URL-encoded bodies larger than 500 kB (whatever
+  `server.max_content_length` is), as [request bodies are limited by
+  default](#request-bodies-are-limited-by-default).
 
 WES gateways may also drop workarounds for [backend lists, which now know
 WES](#backend-lists-know-wes), and gateways their own token clients, as

@@ -634,9 +634,13 @@ def test_max_form_memory_size_unset() -> None:
 
 
 def test_max_form_memory_size_above_max_content_length() -> None:
-    """URL-encoded bodies are limited by the lower of both limits."""
+    """URL-encoded bodies are limited by `max_content_length` if it is lower.
+
+    Bodies between both limits are rejected; the opposite case is covered by
+    the tests above (form limit below `max_content_length`).
+    """
     client = WsgiClient(_limited_app(limit=LIMIT, form_limit=10 * LIMIT))
-    response = client.post("/form", data=b"a&" * LIMIT, content_type=URLENCODED)
+    response = client.post("/form", data=b"a&" * (2 * LIMIT), content_type=URLENCODED)
     _assert_too_large(response)
 
 
