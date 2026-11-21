@@ -76,8 +76,11 @@ def _end_anchored(pattern: str) -> str:
 
     In Python, `$` also matches before a newline at the end of a string, in
     ECMA 262 only at the end. Anchors are replaced by `\Z`; escaped dollar
-    signs (`\$`) and those in sets (e.g., `[$]`) are kept. Sets are read as
-    by Python, where a `]` first in a set (after an optional `^`) is literal.
+    signs (`\$`) and those in sets (e.g., `[$]`) or comments (`(?#...)`) are
+    kept. Sets are read as by Python, where a `]` first in a set (after an
+    optional `^`) is literal. Comments of verbose patterns (`(?x)`) aren't
+    recognized, so anchors after a `[` in them are kept (Python syntax only,
+    not in ECMA 262).
 
     Args:
         pattern: Regular expression, e.g., of a JSON Schema `pattern`.
@@ -106,6 +109,12 @@ def _end_anchored(pattern: str) -> str:
             if pattern.startswith("]", index):
                 index += 1
             char += pattern[start:index]
+        elif char == "(" and pattern.startswith("?#", index):
+            # A comment, which ends at the first `)`, kept as it is
+            end = pattern.find(")", index)
+            end = len(pattern) if end == -1 else end + 1
+            char += pattern[index:end]
+            index = end
         elif char == "$":
             char = r"\Z"
         parts.append(char)
@@ -219,10 +228,14 @@ class BodyValidator(RequestBodyValidator):
         consumes: list[str],
         api: Any,
         is_null_value_valid: bool = False,
-        validator: Any = None,
+        validator: type[Any] | None = None,
         strict_validation: bool = False,
     ) -> None:
         """Create a validator, as Connexion's.
+
+        The signature of Connexion 2's `RequestBodyValidator`, which is
+        untyped (`api` is its API object); to be revisited with Connexion 3
+        (#188).
 
         Args:
             schema: Schema of the body.
@@ -238,7 +251,7 @@ class BodyValidator(RequestBodyValidator):
             consumes,
             api,
             is_null_value_valid,
-            validator=validator or _BodySchemaValidator,
+            validator=_BodySchemaValidator if validator is None else validator,
             strict_validation=strict_validation,
         )
 
@@ -391,9 +404,25 @@ def _parameter_errors(
         ]
     if schema.get("type") == "file":
         return []
+    return schema_field_errors(_schema_errors(schema, converted), parameter=name)
+
+
+def _schema_errors(schema: dict[str, Any], converted: Any) -> Iterator[ValidationError]:
+    """Check a converted parameter against its schema, as Connexion does.
+
+    Without `required`, which Connexion checks before, and with FOCA's check
+    of `pattern` (cf. :py:func:`_pattern`).
+
+    Args:
+        schema: Schema of the parameter.
+        converted: Value of the parameter, converted to its type.
+
+    Returns:
+        The errors.
+    """
     schema = {key: item for key, item in schema.items() if key != "required"}
     validator = _ParameterSchemaValidator(schema, format_checker=draft4_format_checker)
-    return schema_field_errors(validator.iter_errors(converted), parameter=name)
+    return validator.iter_errors(converted)
 
 
 def _pattern_reason(
@@ -421,9 +450,7 @@ def _pattern_reason(
         return None
     # Converted by Connexion already, without error
     converted = coerce_type(param, value, parameter_type, param["name"])
-    schema = {key: item for key, item in schema.items() if key != "required"}
-    validator = _ParameterSchemaValidator(schema, format_checker=draft4_format_checker)
-    error = next(iter(validator.iter_errors(converted)), None)
+    error = next(iter(_schema_errors(schema, converted)), None)
     return None if error is None else str(error)
 
 

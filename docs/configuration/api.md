@@ -224,10 +224,11 @@ Beyond the checks of Connexion against the specification, FOCA refuses these wit
   (e.g., `?pageToken=...%0A`). Python's `re`, which Connexion and jsonschema use,
   also matches `$` before a newline at the end. Escaped dollar signs (`\$`) and those
   in sets (`[$]`) are literal, as before; patterns are otherwise Python regular
-  expressions. Controllers can rely on such patterns and need no check of their own
+  expressions, but `$` matches at the end also with Python's inline flag `(?m)`,
+  which ECMA 262 doesn't have. Controllers can rely on such patterns and need no check of their own
   (e.g., with `re.fullmatch()`). Patterns of responses (`validate_responses`) and
-  keys of `patternProperties` are checked as before. A custom `body` validator in
-  `validator_map` takes the check of bodies over.
+  keys of `patternProperties` are checked as before. A custom `body` or `parameter`
+  validator in `validator_map` takes the check of bodies or parameters over.
 - **Query parameters of operations without parameters**, with `strict_validation`,
   except those holding API keys. Operations with parameters refuse others already.
 

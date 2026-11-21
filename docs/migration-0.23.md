@@ -237,6 +237,8 @@ are now refused with `400`, naming the field (`pattern-mismatch`).
   identifiers read from a file without stripping them) must strip it.
 - Apps may drop their own checks of such values (e.g., `re.fullmatch()` of
   page tokens in controllers).
+- Apps with a custom `body` or `parameter` validator in `validator_map`
+  check bodies or parameters as their validator does, not with FOCA's check.
 
 ## Backend lists know WES
 

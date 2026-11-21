@@ -524,6 +524,8 @@ class TestPatterns:
             ("^[a\\]$]$", "^[a\\]$]\\Z"),
             ("^[[$]$", "^[[$]\\Z"),
             ("^a", "^a"),
+            ("(?#[$)a$", "(?#[$)a\\Z"),
+            ("a(?#$", "a(?#$"),
             ("", ""),
             ("a\\", "a\\"),
         ],
@@ -574,6 +576,14 @@ class TestPatterns:
             validator=CustomSchemaValidator,
         )
         assert isinstance(validator.validator, CustomSchemaValidator)
+
+    @pytest.mark.parametrize(
+        ("instance", "valid"), [("a", True), ("a\n", False), (1, True), (None, True)]
+    )
+    def test_default_body_validator(self, instance: object, valid: bool) -> None:
+        """The body validator checks patterns, of strings only, by default."""
+        validator = BodyValidator({"pattern": "^a$"}, ["application/json"], MagicMock())
+        assert validator.validator.is_valid(instance) is valid
 
 
 class TestExtraParameters:
