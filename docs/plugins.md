@@ -593,9 +593,10 @@ fields, files = run_request_form(attempt.outbound.payload)  # to forward
 - The engine reads the client's pipeline and backends from the run's
   `tags` (`host.start()` needs no `tags=`), and refuses `request` hook
   output that changes reserved tags, as for TES tasks.
-- Limit the size of request bodies in the web server as well (e.g., Flask's
-  `MAX_CONTENT_LENGTH`), so that larger uploads are refused before they are
-  parsed.
+- Keep the size of request bodies limited in the web server as well
+  ([`server.max_content_length`](configuration/server.md#request-body-size),
+  by default 10 MiB), so that larger uploads are refused before they are
+  parsed; raise it for runs with larger attachments.
 - Provenance records describe attachments by filename, media type, size and
   digest, never their content.
 

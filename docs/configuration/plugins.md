@@ -332,8 +332,10 @@ total size (`max_size`, in bytes, default 32 MiB): apps check the client's
 run against them before the plugins run, and the engine after each plugin
 that got the run, which fails if the run exceeds them (cf. [WES
 requests](../plugins.md#wes-requests)). Keep the request body limit of the
-web server (e.g., Flask's `MAX_CONTENT_LENGTH`) in line, and the limits of
-plugins that add files at or below these.
+web server in line ([`server.max_content_length`](server.md#request-body-size),
+by default 10 MiB, which is below the default `max_size`: raise it if
+clients may send attachments that large), and the limits of plugins that add
+files at or below these.
 
 ## Migrating from middlewares
 

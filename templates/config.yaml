@@ -15,9 +15,13 @@ server:
   # Debug mode exposes an interactive debugger; local development only
   debug: False
   testing: False
-  # Maximum size of request bodies in bytes (e.g., 10485760 for 10 MiB);
-  # unlimited if null; bodies may be read before authentication
-  max_content_length: null
+  # Maximum size of request bodies in bytes (10 MiB); unlimited if null;
+  # bodies may be read before authentication
+  max_content_length: 10485760
+  # Maximum size of form data in bytes (500 kB, as in Flask): whole
+  # URL-encoded bodies, and each non-file field of multipart bodies;
+  # limited by max_content_length only if null
+  max_form_memory_size: 500000
   # URL of the app as clients see it, with any path prefix of a reverse
   # proxy (e.g., https://api.example.org/my-app/); none if null
   public_url: null
