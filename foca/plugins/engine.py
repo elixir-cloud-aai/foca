@@ -147,6 +147,7 @@ from foca.plugins.selection import (
     apply_backend_selection,
     parse_client_pipeline,
     parse_client_tags,
+    selects_unknown_only,
 )
 from foca.plugins.store import (
     STORE_COLLECTION,
@@ -1589,23 +1590,33 @@ class PipelineRun:
         self,
         candidates: Sequence[Backend],
         snapshots: Mapping[str, str | None] | None = None,
+        known: Sequence[Backend] | None = None,
     ) -> list[Backend]:
         """Run the `route` phase.
 
         Backends at or below the gateway's public URL are removed first;
         the client's backend selection, if any, applies to the result (cf.
-        :py:func:`foca.plugins.selection.apply_backend_selection`).
+        :py:func:`foca.plugins.selection.apply_backend_selection`). A
+        selection of type `allow` of identifiers only (no URLs), none of
+        which names a backend of `candidates` or `known`, is refused before
+        the phase runs, as it can never yield a candidate (cf.
+        :py:func:`foca.plugins.selection.selects_unknown_only`).
 
         Args:
             candidates: Candidate backends, in the server's order.
             snapshots: Times of the registry reads that the candidates come
                 from, by registry entry, for provenance (cf. `snapshots` of
                 :py:meth:`foca.plugins.backends.BackendList.expand`).
+            known: Other backends of the app for the request's API, which it
+                left out of `candidates` (e.g., as they can't run the
+                request), so that choosing them isn't refused as unknown.
 
         Returns:
             Candidates after the phase, in order.
 
         Raises:
+            InvalidSelection: The client's selection is `allow` and names
+                only unknown identifiers (`invalid-backends`).
             PipelineRejected: A plugin rejected the request.
             PipelineFailed: All alternatives of a required step failed.
         """
@@ -1616,6 +1627,7 @@ class PipelineRun:
             logger.warning("Backends at the gateway's own URL removed: %s", own)
         self.candidates_in = [backend.id for backend in candidates]
         self.snapshots = dict(snapshots or {})
+        self._refuse_unknown_selection([*candidates, *(known or ())])
         routed: list[Backend] = self._run_phase(
             "route",
             [backend for backend in candidates if backend.id not in own],
@@ -1628,6 +1640,30 @@ class PipelineRun:
             )
         self.candidates_out = [backend.id for backend in routed]
         return routed
+
+    def _refuse_unknown_selection(self, known: Sequence[Backend]) -> None:
+        """Refuse a client's `allow` of unknown backends (cf. :py:meth:`route`).
+
+        Args:
+            known: All backends that the app knows for the request; those at
+                the gateway's own URL don't count.
+
+        Raises:
+            InvalidSelection: The selection names only unknown identifiers;
+                its items are recorded as discarded.
+        """
+        selection = self.selection.backends
+        if selection is None or not selects_unknown_only(
+            [backend for backend in known if not self.host.is_own_url(backend.url)],
+            selection,
+        ):
+            return
+        self.backends_discarded = list(selection.backends)
+        self.candidates_out = []
+        # names no values of the client (cf. `selection` module)
+        raise InvalidSelection(
+            "None of the chosen backends is known", slug="invalid-backends", run=self
+        )
 
     def attempts(
         self,
