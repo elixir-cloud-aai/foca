@@ -333,9 +333,19 @@ class ServerConfig(FOCABaseConfig):
             Flask's `MAX_CONTENT_LENGTH`; larger bodies are rejected with
             `413` before requests are handled, also if their size is not
             declared (e.g., chunked bodies, which are read up to one byte
-            more than the limit). If ``None``, bodies are not limited by the
-            app. As bodies may be read before requests are authenticated,
-            limit them here or in a reverse proxy or ingress.
+            more than the limit). By default 10 MiB. If ``None``, bodies are
+            not limited by the app. As bodies may be read before requests
+            are authenticated, keep a limit here or in a reverse proxy or
+            ingress.
+        max_form_memory_size: Maximum size of form data in memory in bytes,
+            set as Flask's `MAX_FORM_MEMORY_SIZE`: of each non-file field of
+            multipart bodies (`multipart/form-data`, checked by Werkzeug
+            while parsing), and of whole URL-encoded bodies
+            (`application/x-www-form-urlencoded`, which Werkzeug parses at
+            once without checking it, so they are rejected with `413` before
+            requests are handled, like by `max_content_length`). By default
+            500 kB, as in Flask. If ``None``, form data is not limited
+            beyond `max_content_length`.
         public_url: Absolute `http` or `https` URL of the app as clients see
             it, including any path prefix of a reverse proxy or ingress
             (e.g., ``https://api.example.org/my-app/``), but not the root
@@ -356,6 +366,7 @@ class ServerConfig(FOCABaseConfig):
         testing: Enable/disable testing mode. If ``True``, exceptions are
             propagated rather than handled by the app's error handlers.
         max_content_length: Maximum size of request bodies in bytes.
+        max_form_memory_size: Maximum size of form data in memory in bytes.
         public_url: Public URL of the app, normalized.
 
     Raises:
@@ -374,7 +385,8 @@ class ServerConfig(FOCABaseConfig):
     port: int = 8080
     debug: bool = False
     testing: bool = False
-    max_content_length: PositiveInt | None = None
+    max_content_length: PositiveInt | None = 10 * 1024 * 1024
+    max_form_memory_size: PositiveInt | None = 500_000
     public_url: str | None = None
     request_id: RequestIdConfig = RequestIdConfig()
 

@@ -219,10 +219,38 @@ def test_removed_server_fields(field: str) -> None:
         ServerConfig(**{field: "x"})  # type: ignore[arg-type]  # invalid on purpose
 
 
-def test_max_content_length_unset_by_default() -> None:
-    """Request bodies are not limited by default."""
+def test_max_content_length_default() -> None:
+    """Request bodies are limited to 10 MiB by default."""
     cnx_app = create_connexion_app(Config())
+    assert cnx_app.app.config["MAX_CONTENT_LENGTH"] == 10 * 1024 * 1024
+
+
+def test_max_content_length_none() -> None:
+    """Request bodies are not limited by the app if the limit is `None`."""
+    cnx_app = create_connexion_app(Config(server=ServerConfig(max_content_length=None)))
     assert cnx_app.app.config["MAX_CONTENT_LENGTH"] is None
+
+
+def test_max_form_memory_size_default() -> None:
+    """Form data is limited to Flask's default of 500 kB by default."""
+    cnx_app = create_connexion_app(Config())
+    assert cnx_app.app.config["MAX_FORM_MEMORY_SIZE"] == 500_000
+
+
+@pytest.mark.parametrize("value", [10, None])
+def test_max_form_memory_size(value: int | None) -> None:
+    """The size limit of form data is set as Flask's `MAX_FORM_MEMORY_SIZE`."""
+    cnx_app = create_connexion_app(
+        Config(server=ServerConfig(max_form_memory_size=value))
+    )
+    assert cnx_app.app.config["MAX_FORM_MEMORY_SIZE"] == value
+
+
+@pytest.mark.parametrize("value", [0, -1, "x"])
+def test_invalid_max_form_memory_size(value: int | str) -> None:
+    """Invalid size limits of form data fail validation."""
+    with pytest.raises(ValidationError):
+        ServerConfig(max_form_memory_size=value)  # type: ignore[arg-type]  # invalid on purpose
 
 
 def test_max_content_length() -> None:
@@ -277,14 +305,22 @@ VIEWS = {
 }
 
 
-def _limited_app(limit: int | None = LIMIT) -> Flask:
-    """Create a Flask app with the given size limit of request bodies.
+def _limited_app(
+    limit: int | None = LIMIT, form_limit: int | None = 10 * LIMIT
+) -> Flask:
+    """Create a Flask app with the given size limits of request bodies.
 
-    The app has routes that read the body in different ways (returning what
-    they read) or don't (`/ignore`), and FOCA's problem handler.
+    `form_limit` is the size limit of form data (`max_form_memory_size`),
+    by default above `limit`, so that `limit` applies. The app has routes
+    that read the body in different ways (returning what they read) or
+    don't (`/ignore`), and FOCA's problem handler.
     """
     cnx_app = create_connexion_app(
-        Config(server=ServerConfig(max_content_length=limit))
+        Config(
+            server=ServerConfig(
+                max_content_length=limit, max_form_memory_size=form_limit
+            )
+        )
     )
     register_exception_handler(cnx_app, ExceptionConfig(media_type="application/json"))
     app = cnx_app.app
@@ -513,6 +549,101 @@ def test_max_content_length_unset_chunked() -> None:
     assert read == 10 * LIMIT
 
 
+URLENCODED = "application/x-www-form-urlencoded"
+
+
+@pytest.mark.parametrize("limit", [10 * LIMIT, None])
+@pytest.mark.parametrize(
+    "content_type",
+    [URLENCODED, "Application/X-WWW-Form-Urlencoded; charset=utf-8"],
+)
+def test_max_form_memory_size_urlencoded_declared(
+    limit: int | None, content_type: str
+) -> None:
+    """URL-encoded bodies with a declared size over the form limit get `413`.
+
+    This happens without reading them, also by routes not reading them, and
+    also if the size of other bodies is not limited.
+    """
+    client = WsgiClient(_limited_app(limit=limit, form_limit=LIMIT))
+    stream = io.BytesIO(b"a&" * LIMIT)
+    response = client.post(
+        "/ignore",
+        input_stream=stream,
+        content_type=content_type,
+        environ_overrides={"CONTENT_LENGTH": str(2 * LIMIT)},
+    )
+    _assert_too_large(response)
+    assert stream.tell() == 0
+
+
+@pytest.mark.parametrize("limit", [10 * LIMIT, None])
+def test_max_form_memory_size_urlencoded_chunked(limit: int | None) -> None:
+    """Chunked URL-encoded bodies over the form limit get `413`.
+
+    This happens after reading at most one byte more than the form limit.
+    """
+    client = WsgiClient(_limited_app(limit=limit, form_limit=LIMIT))
+    response, read = _send_chunked(
+        client, b"a&" * 10 * LIMIT, path="/form", content_type=URLENCODED
+    )
+    _assert_too_large(response)
+    assert read == LIMIT + 1
+
+
+@pytest.mark.parametrize("chunked", [False, True])
+def test_max_form_memory_size_urlencoded_at_limit(chunked: bool) -> None:
+    """URL-encoded bodies up to the form limit are parsed in full."""
+    client = WsgiClient(_limited_app(limit=None, form_limit=LIMIT))
+    body = b"a=1&b=" + b"x" * (LIMIT - 6)
+    if chunked:
+        response, _ = _send_chunked(client, body, path="/form", content_type=URLENCODED)
+    else:
+        response = client.post("/form", data=body, content_type=URLENCODED)
+    assert response.status_code == 200
+    assert response.get_json() == {"a": "1", "b": "x" * (LIMIT - 6)}
+
+
+@pytest.mark.parametrize("chunked", [False, True])
+@pytest.mark.parametrize(
+    "content_type", ["application/json", "text/plain", "application/x-url-encoded"]
+)
+def test_max_form_memory_size_other_bodies(chunked: bool, content_type: str) -> None:
+    """The form limit does not apply to bodies that are not URL-encoded."""
+    client = WsgiClient(_limited_app(limit=10 * LIMIT, form_limit=LIMIT))
+    body = b"x" * 10 * LIMIT
+    if chunked:
+        response, _ = _send_chunked(client, body, content_type=content_type)
+    else:
+        response = client.post("/data", data=body, content_type=content_type)
+    assert response.status_code == 200
+    assert response.data == body
+
+
+def test_max_form_memory_size_unset() -> None:
+    """Without a form limit, URL-encoded bodies are limited like others."""
+    client = WsgiClient(_limited_app(limit=10 * LIMIT, form_limit=None))
+    body = b"a=" + b"x" * (10 * LIMIT - 2)
+    response = client.post("/form", data=body, content_type=URLENCODED)
+    assert response.status_code == 200
+    response = client.post("/form", data=body + b"x", content_type=URLENCODED)
+    _assert_too_large(response)
+
+
+def test_max_form_memory_size_added() -> None:
+    """URL-encoded bodies are checked if a form limit is added.
+
+    The limit is set in the Flask config after the app was created.
+    """
+    app = _limited_app(limit=None, form_limit=None)
+    app.config["MAX_FORM_MEMORY_SIZE"] = LIMIT
+    response, read = _send_chunked(
+        WsgiClient(app), b"a&" * 10 * LIMIT, path="/form", content_type=URLENCODED
+    )
+    _assert_too_large(response)
+    assert read == LIMIT + 1
+
+
 # Calls of the security handler and operation of `SPEC`
 CALLS: list[str] = []
 
@@ -619,3 +750,52 @@ class TestMaxContentLengthOperation:
         assert response.status_code == 200
         assert response.get_json() == json.loads(self.BODY)
         assert CALLS == ["auth", "operation"]
+
+
+class TestMaxFormMemorySizeOperation:
+    """Size limit of URL-encoded request bodies of a Connexion operation."""
+
+    @pytest.fixture
+    def client(self) -> WsgiClient:
+        """Client of an app with a test API and the default size limits."""
+        CALLS.clear()
+        cnx_app = create_connexion_app(Config())
+        register_exception_handler(
+            cnx_app, ExceptionConfig(media_type="application/json")
+        )
+        cnx_app.add_api(SPEC)
+        return WsgiClient(cnx_app.app)
+
+    @pytest.mark.parametrize("chunked", [False, True])
+    def test_anonymous_too_large(
+        self, client: WsgiClient, chunked: bool, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Anonymous URL-encoded bodies over the form limit get `413` unparsed.
+
+        Also for operations without form bodies; neither the security
+        handler nor the operation is called, and the form is not parsed.
+        """
+
+        def fail(*args: Any, **kwargs: Any) -> None:
+            raise AssertionError("form parsed")
+
+        monkeypatch.setattr(
+            "werkzeug.formparser.FormDataParser._parse_urlencoded", fail
+        )
+        body = b"a&" * 250_001
+        overrides: dict[str, str | bool] = {}
+        headers = {}
+        if chunked:
+            headers["Transfer-Encoding"] = "chunked"
+            overrides["wsgi.input_terminated"] = True
+        else:
+            overrides["CONTENT_LENGTH"] = str(len(body))
+        response = client.post(
+            "/items",
+            input_stream=io.BytesIO(body),
+            content_type=URLENCODED,
+            headers=headers,
+            environ_overrides=overrides,
+        )
+        _assert_too_large(response)
+        assert CALLS == []
