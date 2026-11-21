@@ -218,6 +218,18 @@ Beyond the checks of Connexion against the specification, FOCA refuses these wit
 - **Invalid values for the JSON Schema formats** `date-time` (RFC 3339), `date`
   (`YYYY-MM-DD`) and `uri` (lenient: any scheme, without whitespace), in bodies and
   parameters, as well as in responses with `validate_responses`.
+- **Values with a newline after the end of a pattern**, in bodies and parameters:
+  `$` in a `pattern` matches only at the end of the value, as in ECMA 262, to which
+  JSON Schema and OpenAPI refer, so `^[0-9a-f]{24}$` refuses `"<24 hex digits>\n"`
+  (e.g., `?pageToken=...%0A`). Python's `re`, which Connexion and jsonschema use,
+  also matches `$` before a newline at the end. Escaped dollar signs (`\$`) and those
+  in sets (`[$]`) are literal, as before. Patterns are otherwise Python regular
+  expressions, but `$` matches only at the end also with Python's inline flag `(?m)`,
+  which ECMA 262 doesn't have. Controllers can rely on such patterns and need no
+  check of their own (e.g., with `re.fullmatch()`). Patterns of responses
+  (`validate_responses`) and keys of `patternProperties` are checked as before. A
+  custom `body` or `parameter` validator in `validator_map` takes the check of bodies
+  or parameters over.
 - **Query parameters of operations without parameters**, with `strict_validation`,
   except those holding API keys. Operations with parameters refuse others already.
 
