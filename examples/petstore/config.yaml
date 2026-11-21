@@ -1,11 +1,11 @@
+# No size limits of request bodies and URL-encoded form data are set, so
+# FOCA's defaults apply (10 MiB, 500 kB), as the integration tests expect
 server:
     host: '0.0.0.0'
     port: 8080
     # Debug mode exposes an interactive debugger; local development only
     debug: False
     testing: False
-    # Size limits of request bodies and URL-encoded form data: FOCA's
-    # defaults (10 MiB, 500 kB), as the integration tests expect
 
 security:
     auth:

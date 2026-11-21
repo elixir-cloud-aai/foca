@@ -5,6 +5,9 @@ the root context (`root`) and these settings (`settings`).
 */}}
 {{- define "petstore.settings" -}}
 valuesKey: petstore
+# Size limit of request bodies of the app (`server.max_content_length`):
+# FOCA's default, as the base config (`config.yaml`) sets none
+maxContentLength: 10485760
 mongodb:
   # `db.dbs` of the base config (`config.yaml`)
   databases: [petstore]

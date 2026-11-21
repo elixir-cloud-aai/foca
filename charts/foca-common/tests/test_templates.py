@@ -1392,9 +1392,10 @@ def _body_size(value: str | None, *args: str) -> tuple[str, ...]:
     return ("--set-json", f"petstore.ingress.annotations={annotations}", *args)
 
 
-# The app's size limit of request bodies: 10 MiB (the petstore example sets
-# none by default, so the check needs one)
+# The app's size limit of request bodies: 10 MiB (the petstore example's
+# default, FOCA's), or none
 LIMIT_10_MIB = ("--set", "config.server.max_content_length=10485760")
+NO_LIMIT = ("--set-json", "config.server.max_content_length=null")
 HTTPS = ("--set", "petstore.ingress.https.enabled=true")
 
 
@@ -1411,7 +1412,7 @@ HTTPS = ("--set", "petstore.ingress.https.enabled=true")
         _body_size("1g", "--set", "config.server.max_content_length=1073741824"),
         _body_size("1m", "--set", "config.server.max_content_length=1048576"),
         # Without an app limit, any size of ingress-nginx renders
-        _body_size("1"),
+        _body_size("1", *NO_LIMIT),
         # Without the annotation, the chart can't know the controller's limit
         LIMIT_10_MIB,
         _body_size(None, *LIMIT_10_MIB),
@@ -1454,6 +1455,8 @@ def test_ingress_body_size_allowed(
         ),
         # Also with the annotations requesting a certificate
         (_body_size("1m", *LIMIT_10_MIB, *HTTPS), "set it to 10m or more"),
+        # The petstore's settings have FOCA's default limit
+        (_body_size("1m"), "(10485760 bytes)"),
     ],
 )
 def test_ingress_body_size_too_small(
@@ -1552,9 +1555,22 @@ def test_max_content_length(chart_with_settings: Callable[[str], Path]) -> None:
 
 
 def test_body_size_limits_null(render: Callable[..., Docs]) -> None:
-    """The schema allows removing FOCA's default size limits (`null`)."""
+    """The schema allows removing FOCA's default size limits (`null`).
+
+    The overlay passes `null` on to the app.
+    """
     server = {"max_content_length": None, "max_form_memory_size": None}
-    render("--set-json", f"config.server={json.dumps(server)}", *NO_INGRESS)
+    docs = render("--set-json", f"config.server={json.dumps(server)}", *NO_INGRESS)
+    assert _overlay(docs)["server"] == server
+
+
+def test_max_content_length_null(chart_with_settings: Callable[[str], Path]) -> None:
+    """A `null` limit of the overlay overrides that of the settings."""
+    chart = chart_with_settings(FULL_SETTINGS)
+    (chart / "templates" / "limit.yaml").write_text(LIMIT_TEMPLATE)
+    server = json.dumps({"max_content_length": None})
+    docs = index(template(chart, *AUDIENCE, "--set-json", f"config.server={server}"))
+    assert docs[("ConfigMap", "limit")]["data"] == {"limit": ""}
 
 
 @pytest.mark.parametrize("value", ["0", "1.5", '"1m"'])
