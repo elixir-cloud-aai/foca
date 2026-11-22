@@ -577,6 +577,17 @@ class TestMatchRequest:
             assert found.route.path == "/api/v1/items/{item-id}/{count}"
             assert context._get_operation_id() == f"{__name__}.view_request"
 
+    def test_routed_to(self, request_app: Flask) -> None:
+        """Requests are routed to their operation's rule, if any."""
+        with request_context("/api/v1/items/a/1", method="POST", app=request_app):
+            found = context._match_request()
+            assert found is not None
+            assert context._is_routed_to(found.route)
+        route = found.route
+        assert not context._is_routed_to(route)
+        with request_context("/other", app=request_app):
+            assert not context._is_routed_to(route)
+
 
 class TestRequestKey:
     """Tests for `_get_request_key()`."""

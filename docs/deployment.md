@@ -142,7 +142,9 @@ Things to keep in mind:
   (by default 10 MiB) and `server.max_form_memory_size` (by default 500 kB
   for URL-encoded bodies), or in the reverse proxy or ingress in front of the
   app (e.g., `client_max_body_size` in NGINX): bodies may be read before
-  requests are authenticated.
+  requests are authenticated, except on operations that require [bearer
+  tokens validated by
+  FOCA](authentication.md#tokens-are-checked-before-bodies-are-read).
 - **Serve the app behind a reverse proxy** that buffers requests and times
   out slow clients (e.g., ingress-nginx, which buffers request bodies by
   default): with FOCA's Gunicorn settings, each worker serves only a few

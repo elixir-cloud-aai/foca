@@ -24,7 +24,11 @@ and deployments need to change only if:
   than 10 MiB, set it to `null` (as the configuration template did), or
   accept URL-encoded bodies larger than 500 kB (whatever
   `server.max_content_length` is), as [request bodies are limited by
-  default](#request-bodies-are-limited-by-default).
+  default](#request-bodies-are-limited-by-default);
+- their tests or clients expect `413` for anonymous requests with too large
+  bodies, or replace FOCA's token validation in ways it doesn't see, as
+  [bearer tokens are checked before bodies are
+  read](#bearer-tokens-are-checked-before-bodies-are-read).
 
 WES gateways may also drop workarounds for [backend lists, which now know
 WES](#backend-lists-know-wes), and gateways their own token clients, as
@@ -327,3 +331,31 @@ form, before it checks the request's token).
 - If operations accept URL-encoded form data larger than 500 kB, raise
   `server.max_form_memory_size` (or set it to `null`). Multipart bodies keep
   Flask's limit of each non-file field, which this setting now configures.
+
+## Bearer tokens are checked before bodies are read
+
+On operations that require [bearer tokens validated by
+FOCA](authentication.md#tokens-are-checked-before-bodies-are-read), FOCA
+checks the token before the request body is read, and before the body size
+check. Requests without a valid token get the same `401` as before, but with
+their body unread:
+
+- Anonymous requests with too large bodies get `401` instead of `413` on
+  these operations; requests with a valid token get `413` as before.
+- Each token is validated once per request: Connexion's security handler
+  gets the token info of FOCA's check. FOCA's check calls the function that
+  Connexion resolved for the scheme when the API was added, so replacing
+  `foca.security.auth.validate_token` (e.g., with `mock.patch()` in tests)
+  applies to both, as before, if it is replaced while the API is added
+  (`register_openapi()`, `add_api()`). Apps that mock Connexion's security
+  handler instead (e.g., `verify_bearer`) also need to replace
+  `validate_token`, or send valid tokens. A replacement is called twice for
+  requests with a token (by FOCA's check and by Connexion), unless it reuses
+  its result within the request as `validate_token` does.
+- `before_request` hooks of apps run after FOCA's check, so on these
+  operations, requests without a valid token get `401` before such hooks
+  can answer them (e.g., with `503` in a maintenance mode, or `429` from a
+  rate limit).
+
+Operations with optional tokens, API keys or other validation functions are
+handled as before.

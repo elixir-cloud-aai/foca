@@ -14,7 +14,12 @@ from flask import Flask, request
 from werkzeug.routing import Map
 
 from foca.api.register_openapi import register_openapi
-from foca.api.routes import _install_route_table, get_routes, match
+from foca.api.routes import (
+    _install_route_table,
+    _resolve_bearer_info_functions,
+    get_routes,
+    match,
+)
 from foca.api.service_info import _routes_to_controller
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import SpecConfig
@@ -183,7 +188,62 @@ class TestGetRoutes:
         }
         app = create_connexion_app()
         app.add_api(spec)
-        assert get_routes(app.app)[0].security == [{"key": []}]
+        route = get_routes(app.app)[0]
+        assert route.security == [{"key": []}]
+        assert route.security_schemes == spec["components"]["securitySchemes"]
+        with pytest.raises(TypeError):
+            route.security_schemes["other"] = {}  # type: ignore[index]
+        assert dict(route.bearer_info_functions) == {}
+
+    def test_bearer_info_functions(self) -> None:
+        """Functions validating bearer tokens are resolved when added."""
+        spec = _spec()
+        spec["security"] = [{"bearer": []}]
+        spec["components"] = {
+            "securitySchemes": {
+                "bearer": {
+                    "type": "http",
+                    "scheme": "bearer",
+                    "x-bearerInfoFunc": f"{__name__}.view_a",
+                },
+                "unresolved": {
+                    "type": "http",
+                    "scheme": "bearer",
+                    "x-bearerInfoFunc": f"{__name__}.missing",
+                },
+                "unnamed": {"type": "http", "scheme": "bearer"},
+            }
+        }
+        # Only schemes named in `security` are resolved, as by Connexion
+        spec["paths"]["/items"]["get"]["security"] = [
+            {"bearer": []},
+            {"unnamed": []},
+        ]
+        app = create_connexion_app()
+        app.add_api(spec)
+        route = get_routes(app.app)[0]
+        assert dict(route.bearer_info_functions) == {"bearer": view_a}
+
+    def test_unresolved_bearer_info_function(self) -> None:
+        """Functions that can't be resolved are left out."""
+        schemes = {
+            "missing": {"x-bearerInfoFunc": f"{__name__}.missing"},
+            "nowhere": {"x-bearerInfoFunc": "no_such_module_814.validate"},
+            "other": {"type": "apiKey"},
+        }
+        security: list[dict[str, list[str]]] = [
+            {"missing": [], "nowhere": [], "other": [], "undefined": []}
+        ]
+        assert dict(_resolve_bearer_info_functions(security, schemes)) == {}
+
+    def test_endpoint(self) -> None:
+        """The framework's endpoint of each operation is recorded."""
+        app = create_connexion_app()
+        app.add_api(_spec())
+        endpoints = {rule.endpoint: rule.rule for rule in app.app.url_map.iter_rules()}
+        for route in get_routes(app.app):
+            assert route.endpoint is not None
+            assert endpoints[route.endpoint] == route.rule
 
     @pytest.mark.parametrize("base_path", ["/", "/api/v1", "/api/v1/"])
     def test_same_as_flask(self, base_path: str) -> None:

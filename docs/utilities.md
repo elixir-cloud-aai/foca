@@ -259,9 +259,11 @@ redirect. Path templates include the base path of the API and exclude the root p
 the app (`SCRIPT_NAME` or ASGI's `root_path`); paths to match are request paths, with the
 same parts and not percent-encoded, as in [access control
 policies](access-control.md#checking-other-paths). A route's `function` is what the
-resolver returned, with FOCA's wrappers: `inspect.unwrap()` gives the controller. Routes
-that aren't operations, e.g., of the Swagger UI or added to Flask directly, aren't
-included.
+resolver returned, with FOCA's wrappers: `inspect.unwrap()` gives the controller. Its
+`security` holds the effective security requirements, `security_schemes` the schemes of
+the specification, by name, and `bearer_info_functions` the functions validating bearer
+tokens (`x-bearerInfoFunc`), as resolved when the operation was added. Routes that
+aren't operations, e.g., of the Swagger UI or added to Flask directly, aren't included.
 
 ## Logging requests and responses
 

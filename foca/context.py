@@ -14,7 +14,7 @@ from celery import current_task
 from flask import has_request_context, request
 from flask.globals import request_ctx
 
-from foca.api.routes import RouteMatch, match
+from foca.api.routes import Route, RouteMatch, match
 
 DEFAULT_REQUEST_ID_HEADER = "X-Request-ID"
 
@@ -342,6 +342,32 @@ def _match_request() -> RouteMatch | None:
     if not _has_request():
         return None
     return match(request.path, request.method)
+
+
+def _is_routed_to(route: Route) -> bool:
+    """Check whether the framework routed the request being handled to a route.
+
+    The route table doesn't know routes that aren't operations (e.g., the
+    served specification, or routes that apps add), so a request matching an
+    operation's path template may be served by another route.
+
+    Args:
+        route: Route of an operation, e.g., as found by
+            :py:func:`_match_request`.
+
+    Returns:
+        Whether the request is being handled and the framework routed it to
+        the rule of `route`, and to its endpoint if known (i.e., not to a
+        route of the app with the same rule).
+    """
+    if not _has_request():
+        return False
+    rule = request.url_rule
+    return (
+        rule is not None
+        and rule.rule == route.rule
+        and (route.endpoint is None or rule.endpoint == route.endpoint)
+    )
 
 
 def _get_operation_id() -> str:

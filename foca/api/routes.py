@@ -23,6 +23,7 @@ from weakref import ref
 from connexion.apis.flask_api import FlaskApi
 from connexion.apis.flask_utils import flaskify_path
 from connexion.apps.flask_app import FlaskApp, IntegerConverter, NumberConverter
+from connexion.utils import get_function_from_name
 from flask import current_app
 from werkzeug.exceptions import HTTPException
 from werkzeug.routing import Map, Rule
@@ -53,6 +54,19 @@ class Route:
             use `inspect.unwrap()` for the controller.
         base_path: Base path of the API that the operation belongs to,
             without trailing slash; empty for an API at the root.
+        security_schemes: Security schemes of the API specification, by
+            name, as named in `security` (`components.securitySchemes` of
+            OpenAPI 3, `securityDefinitions` of Swagger 2).
+        bearer_info_functions: Functions validating the bearer tokens of
+            the security schemes named in `security`, by name of the scheme,
+            for the schemes that name one (`x-bearerInfoFunc`): resolved when
+            the operation was added, as Connexion resolves them, so that they
+            are the ones Connexion calls, also if the named function was
+            replaced while the API was added (e.g., in tests).
+        endpoint: Name of the framework's route to the operation (Flask's
+            endpoint, with Connexion 2), to tell whether a request reaches
+            the operation rather than another route with the same rule; for
+            FOCA only. `None` if unknown, e.g., for routes built in tests.
     """
 
     method: str
@@ -63,6 +77,13 @@ class Route:
     extensions: Mapping[str, Any]
     function: Callable[..., Any]
     base_path: str = ""
+    security_schemes: Mapping[str, Any] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
+    bearer_info_functions: Mapping[str, Callable[..., Any]] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
+    endpoint: str | None = None
 
 
 class RouteMatch(NamedTuple):
@@ -123,6 +144,36 @@ def _add_route(app: Any, route: Route) -> None:
     app.extensions.setdefault(_ROUTES_EXTENSION, _RouteTable()).add(route)
 
 
+def _resolve_bearer_info_functions(
+    security: list[dict[str, Any]] | None,
+    schemes: Mapping[str, Any],
+) -> Mapping[str, Callable[..., Any]]:
+    """Resolve the functions validating bearer tokens of security schemes.
+
+    Args:
+        security: Security requirements of an operation; only the schemes
+            they name are resolved, as by Connexion.
+        schemes: Security schemes, by name.
+
+    Returns:
+        Functions named in `x-bearerInfoFunc`, by name of the scheme, as
+        Connexion resolves them; schemes whose function can't be resolved
+        are left out, as Connexion refuses them when the API is added.
+    """
+    functions: dict[str, Callable[..., Any]] = {}
+    names = {name for alternative in security or [] for name in alternative}
+    for name in sorted(names):
+        scheme = schemes.get(name)
+        function = scheme.get("x-bearerInfoFunc") if isinstance(scheme, dict) else None
+        if not isinstance(function, str):
+            continue
+        try:
+            functions[name] = get_function_from_name(function)
+        except (ImportError, AttributeError, ValueError):
+            continue
+    return MappingProxyType(functions)
+
+
 class _RecordingMarker:
     """Marks the API classes that record their operations."""
 
@@ -156,7 +207,32 @@ def _install_route_table(cnx_app: Any) -> None:
                 path: Path template, relative to the base path of the API.
                 operation: Connexion operation.
             """
-            super()._add_operation_internal(method, path, operation)
+            # Connexion's name of the operation's Flask route, as it adds it
+            endpoints: list[str] = []
+            add_url_rule = self.blueprint.add_url_rule
+
+            def _add_url_rule(
+                rule: str, endpoint: str, *args: Any, **kwargs: Any
+            ) -> Any:
+                """Add a rule to the blueprint, recording its endpoint.
+
+                Args:
+                    rule: Rule.
+                    endpoint: Endpoint, without the name of the blueprint.
+                    *args: Further arguments of `add_url_rule()`.
+                    **kwargs: Further keyword arguments of `add_url_rule()`.
+
+                Returns:
+                    What `add_url_rule()` returns.
+                """
+                endpoints.append(f"{self.blueprint.name}.{endpoint}")
+                return add_url_rule(rule, endpoint, *args, **kwargs)
+
+            self.blueprint.add_url_rule = _add_url_rule
+            try:
+                super()._add_operation_internal(method, path, operation)
+            finally:
+                del self.blueprint.add_url_rule
             prefix = (self.base_path or "").rstrip("/")
             rule = flaskify_path(path, operation.get_path_parameter_types())
             fields = self.specification.get_operation(path, method) or {}
@@ -182,6 +258,13 @@ def _install_route_table(cnx_app: Any) -> None:
                     rule=f"{prefix}/{rule.lstrip('/')}",
                     operation_id=operation_id,
                     security=operation.security,
+                    security_schemes=MappingProxyType(
+                        dict(operation.security_schemes or {})
+                    ),
+                    bearer_info_functions=_resolve_bearer_info_functions(
+                        operation.security, operation.security_schemes or {}
+                    ),
+                    endpoint=endpoints[0] if len(endpoints) == 1 else None,
                     extensions=MappingProxyType(
                         {
                             key: value
