@@ -33,9 +33,14 @@ binds to the address and port it is configured with.
 
 Request bodies may be read (e.g., for request validation) before requests are
 authenticated: Connexion parses the body of every request, also of
-operations without a body, before it checks the request's token. FOCA
-therefore limits the size of request bodies by default, and rejects larger
-bodies with `413` (problem details with the title `Content Too Large`):
+operations without a body, before it checks the request's token. FOCA checks
+the tokens of operations that require [bearer tokens validated by
+FOCA](../authentication.md#tokens-are-checked-before-bodies-are-read) before
+the body is read; the bodies of other operations (e.g., with optional tokens,
+API keys or other validation functions) are still read before their requests
+are authenticated. FOCA therefore also limits the size of request bodies by
+default, and rejects larger bodies with `413` (problem details with the title
+`Content Too Large`):
 
 | Setting | Default | Limits |
 | --- | --- | --- |
@@ -50,14 +55,18 @@ reverse proxy or ingress in front of the app limits body sizes (e.g.,
 bodies (e.g., uploads).
 
 !!! warning "Bodies are parsed before authentication"
-    Bodies up to the limits are still read and parsed before requests are
+    On operations whose tokens FOCA doesn't check first (see above), bodies
+    up to the limits are still read and parsed before requests are
     authenticated. Without limits (`null`), anonymous clients can make the
     app read and parse bodies of any size, or URL-encoded bodies up to
     `max_content_length`, before they are rejected as unauthenticated.
     Remove a limit only if a reverse proxy or ingress limits body sizes.
 
-Bodies are checked before requests are handled (e.g., authenticated or
-validated), also for operations that don't read their body:
+Bodies are checked before requests are handled by Connexion (e.g.,
+authenticated or validated), also for operations that don't read their body,
+but after FOCA's check of bearer tokens, so that bodies of requests it
+rejects aren't read at all (e.g., anonymous requests with too large bodies
+get `401`, not `413`):
 
 - Bodies with a larger declared size (`Content-Length`) are rejected without
   reading them.

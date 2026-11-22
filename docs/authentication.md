@@ -48,6 +48,36 @@ challenge (with `error="invalid_token"` if the token is invalid, cf.
 specification's config, its security requirements are removed, e.g., for
 local development.
 
+### Tokens are checked before bodies are read
+
+Connexion reads and parses the body of every request (e.g., as JSON or form
+data) before it checks the request's token. So that anonymous clients can't
+make the app read, parse or validate bodies, FOCA checks bearer tokens
+before the body is read, on every operation whose effective security
+requirements (the operation's `security`, else the specification's) are met
+only by tokens that FOCA validates: each alternative names schemes of type
+`http` with scheme `bearer` and `x-bearerInfoFunc:
+foca.security.auth.validate_token` only. Requests without such a token, with
+a malformed `Authorization` header or with an invalid token get the same `401`
+as from Connexion, with their body unread, also before the [body size
+check](configuration/server.md#request-body-size). For requests with a valid
+token, Connexion gets the token info of this check: each token is validated
+once per request.
+
+Other operations are left to Connexion, which reads their bodies first, as
+before:
+
+- operations with optional tokens (an empty alternative, see below) or
+  without security requirements;
+- operations with other schemes in any alternative, e.g., API keys, Basic
+  authentication, OAuth 2.0 schemes, or bearer schemes validated by another
+  function (also wrappers of `validate_token`).
+
+Their bodies are limited by the [body
+size](configuration/server.md#request-body-size) only. `OPTIONS` requests
+that Flask answers by itself (e.g., CORS preflight requests) aren't checked,
+as they don't reach the operation.
+
 ## Optional tokens
 
 Operations can accept requests with and without a token, by adding an empty
