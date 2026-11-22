@@ -166,7 +166,9 @@ def clock(monkeypatch: pytest.MonkeyPatch) -> FakeClock:
     """Replace the clock of :py:mod:`foca.utils.http` with a fake one.
 
     Budgets and deadlines then depend on the fake time only; timers and
-    socket timeouts still run in real time.
+    socket timeouts still run in real time. The fake `time` module has
+    `monotonic` only (all that the module uses), so that other uses fail
+    loudly instead of mixing real and fake time.
 
     Args:
         monkeypatch: Pytest fixture.
@@ -677,8 +679,17 @@ def test_address_fallback_bounded(
 
     def slow(address: Any, timeout: float, **kwargs: Any) -> socket.socket:
         timeouts.append(timeout)
-        clock.advance(min(timeout, 1.0))  # times out after up to 1 s
+        clock.advance(min(timeout, 1.0))  # fails after up to 1 s
+        if address[0] == "10.0.0.2":
+            raise ConnectionRefusedError("refused")
         raise TimeoutError("timed out")
+
+    def causes(error: BaseException | None) -> list[type[BaseException]]:
+        found: list[type[BaseException]] = []
+        while error is not None and type(error) not in found:
+            found.append(type(error))
+            error = error.__cause__ or error.__context__
+        return found
 
     monkeypatch.setattr(http, "_resolve", lambda *args: ["10.0.0.1", "10.0.0.2"])
     monkeypatch.setattr(http.urllib3_connection, "create_connection", slow)
@@ -686,10 +697,13 @@ def test_address_fallback_bounded(
         local(timeout=2).get(f"{server}/ok")
     assert info.value.reason == "connect_error"
     assert timeouts == [2.0, 1.0]  # the second address gets what is left
+    assert ConnectionRefusedError in causes(info.value)  # the last error
+    assert TimeoutError not in causes(info.value)
     timeouts.clear()
-    with pytest.raises(RequestNotSent):
+    with pytest.raises(RequestNotSent) as info:
         local(timeout=0.5).get(f"{server}/ok")
     assert timeouts == [0.5]  # no time left for the second address
+    assert TimeoutError in causes(info.value)
 
 
 def test_rebinding(server: str, monkeypatch: pytest.MonkeyPatch) -> None:
