@@ -6,9 +6,9 @@ import ipaddress
 import logging
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from functools import wraps
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlsplit
 
 import jwt
@@ -22,9 +22,15 @@ from werkzeug.datastructures import WWWAuthenticate
 from werkzeug.exceptions import Unauthorized as AnyUnauthorized
 from werkzeug.http import quote_header_value
 
+from foca.api.routes import Route
 from foca.config.access import _get_app_config, get_config
-from foca.context import _get_request_key, _get_token_info, current_request
-from foca.errors import Unauthorized
+from foca.context import (
+    _get_request_key,
+    _get_token_info,
+    _match_request,
+    current_request,
+)
+from foca.errors import AuthenticationProblem, Unauthorized
 from foca.models.config import (
     NAMESPACE_SEPARATOR,
     AuthConfig,
@@ -63,6 +69,9 @@ _INVALID_TOKEN_DESCRIPTION = "The access token could not be validated"  # noqa: 
 _TOKEN_ERROR_ATTRIBUTE = "foca_token_error"  # noqa: S105 (attribute name)
 # Attribute of `flask.g` set if the token of the request was found valid
 _TOKEN_VALID_ATTRIBUTE = "foca_token_valid"  # noqa: S105 (attribute name)
+# Attribute of `flask.g` with the request, token and token info of the last
+# token validated in the request (cf. `validate_token()`)
+_TOKEN_INFO_ATTRIBUTE = "foca_token_info"  # noqa: S105 (attribute name)
 # Name of `validate_token()` in security schemes (`x-bearerInfoFunc`)
 _VALIDATE_TOKEN_FUNCTION = "foca.security.auth.validate_token"  # noqa: S105 (name)
 
@@ -198,6 +207,10 @@ def validate_token(token: str) -> dict[str, Any]:
     Args:
         token: JSON Web Token (JWT).
 
+    Within a request, a token is validated once: validating it again (e.g.,
+    by Connexion's security handler after FOCA's check before the body is
+    read, cf. :py:func:`_check_bearer_token`) returns the same token info.
+
     Returns:
         Token info: the token (`jwt`), the verified claims (`claims`), the
         subject (`user_id`), the scope (`scope`) and, for service tokens,
@@ -208,6 +221,11 @@ def validate_token(token: str) -> dict[str, Any]:
         foca.errors.Unauthorized: Raised if the JWT could not be
             successfully validated.
     """
+    request_key = _get_request_key()
+    if request_key is not None:
+        cached = g.get(_TOKEN_INFO_ATTRIBUTE)
+        if cached is not None and cached[0] is request_key and cached[1] == token:
+            return cast("dict[str, Any]", cached[2])
     conf: AuthConfig = get_config().security.auth
     if not conf._warnings_logged:
         log_auth_config_warnings(conf)
@@ -232,13 +250,107 @@ def validate_token(token: str) -> dict[str, Any]:
     )
 
     service_client = get_service_client(claims=claims, conf=conf)
-    return {
+    token_info = {
         "jwt": token,
         "claims": claims,
         "user_id": claims[conf.claim_identity],
         "scope": claims.get("scope", ""),
         "service_client": None if service_client is None else service_client.client_id,
     }
+    if request_key is not None:
+        # Keyed to the request, as the app context can outlive it
+        setattr(g, _TOKEN_INFO_ATTRIBUTE, (request_key, token, token_info))
+    return token_info
+
+
+def _is_validated_bearer_scheme(scheme: Mapping[str, Any] | None) -> bool:
+    """Check whether a security scheme takes bearer tokens validated by FOCA.
+
+    Args:
+        scheme: Security scheme, if defined.
+
+    Returns:
+        Whether it is of type `http` with scheme `bearer` (in any case) and
+        names :py:func:`validate_token` in `x-bearerInfoFunc`, i.e., whether
+        Connexion validates its tokens with it.
+    """
+    return (
+        scheme is not None
+        and scheme.get("type") == "http"
+        and str(scheme.get("scheme", "")).lower() == "bearer"
+        and scheme.get("x-bearerInfoFunc") == _VALIDATE_TOKEN_FUNCTION
+    )
+
+
+def _requires_bearer_token(route: Route) -> bool:
+    """Check whether an operation requires a bearer token validated by FOCA.
+
+    Args:
+        route: Route to the operation.
+
+    Returns:
+        Whether every alternative of its effective security requirements is
+        non-empty and has schemes taking bearer tokens validated by
+        :py:func:`validate_token` only (cf.
+        :py:func:`_is_validated_bearer_scheme`), so that Connexion rejects
+        every request without a bearer token that :py:func:`validate_token`
+        accepts. Operations with optional authentication (an empty
+        alternative), without security requirements, or with other schemes in
+        any alternative (e.g., API keys, Basic, OAuth 2.0, other validation
+        functions) are left to Connexion.
+    """
+    security = route.security or []
+    return bool(security) and all(
+        alternative
+        and all(
+            _is_validated_bearer_scheme(route.security_schemes.get(name))
+            for name in alternative
+        )
+        for alternative in security
+    )
+
+
+def _check_bearer_token() -> None:
+    """Reject requests without a valid bearer token before reading the body.
+
+    Registered to run before each request, before the check of the body size
+    (which reads bodies without a declared size, e.g., chunked): Connexion 2
+    reads and parses the body of each request (`get_data()`, `form`,
+    `files`) before its security handler checks the token. For
+    operations requiring bearer tokens validated by FOCA (cf.
+    :py:func:`_requires_bearer_token`), requests without a token, with
+    another scheme, a malformed `Authorization` header or an invalid token
+    are rejected here (`401`, as by Connexion), with their body unread. The
+    token info of valid tokens is reused by Connexion's security handler (cf.
+    :py:func:`validate_token`). Other requests are left to Connexion.
+
+    It counts as middleware, like the check of the body size, and moves to
+    ASGI middleware with the release on ASGI.
+
+    Raises:
+        foca.errors.AuthenticationProblem: The request has no bearer token or
+            an invalid `Authorization` header.
+        foca.errors.Unauthorized: The token is invalid or could not be
+            validated (cf. :py:func:`validate_token`).
+    """
+    found = _match_request()
+    if found is None or not _requires_bearer_token(found.route):
+        return
+    # As Connexion's security handler reads it
+    authorization = current_request().headers.get("Authorization")
+    if not authorization:
+        raise AuthenticationProblem(description="No authorization token provided")
+    try:
+        scheme, token = authorization.split(None, 1)
+    except ValueError:
+        raise AuthenticationProblem(
+            description="Invalid authorization header"
+        ) from None
+    if scheme.lower() != "bearer":
+        raise AuthenticationProblem(description="No authorization token provided")
+    # Looked up at call time, as Connexion resolves `x-bearerInfoFunc`, so
+    # that replacements (e.g., in tests) apply alike
+    validate_token(token)
 
 
 def _get_bearer_token() -> str | None:

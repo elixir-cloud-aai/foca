@@ -8,6 +8,7 @@ from unittest import mock
 import mongomock
 import pytest
 from connexion.exceptions import OAuthProblem
+from werkzeug.wrappers import Request
 
 from foca import Foca
 from foca.security import auth
@@ -114,6 +115,25 @@ def test_unauthenticated(client: Client) -> None:
         assert response.headers["content-type"] == "application/problem+json"
         assert response.json() is not None
         assert response.json()["status"] == 401
+
+
+def test_unauthenticated_body_unread(client: Client) -> None:
+    """Bodies of requests without valid tokens aren't read (cf. #814)."""
+    get_data = Request.get_data
+    with mock.patch.object(
+        Request, "get_data", autospec=True, side_effect=get_data
+    ) as read:
+        for headers in [_headers(None), _headers("mallory")]:
+            response = client.post("/pets", json={"name": "Rex"}, headers=headers)
+            assert response.status_code == 401
+        assert not read.called
+        assert (
+            client.post(
+                "/pets", json={"name": "Rex"}, headers=_headers("alice")
+            ).status_code
+            == 200
+        )
+        assert read.called
 
 
 def test_owners_manage_roles(client: Client) -> None:

@@ -14,6 +14,7 @@ from foca.config.access import _set_app_config
 from foca.context import RequestIdMiddleware
 from foca.errors import BadRequest, PayloadTooLarge
 from foca.models.config import Config
+from foca.security.auth import _check_bearer_token
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -206,8 +207,11 @@ def __add_config_to_connexion_app(
     app.app.config["TESTING"] = conf.testing
     app.app.config["MAX_CONTENT_LENGTH"] = conf.max_content_length
     app.app.config["MAX_FORM_MEMORY_SIZE"] = conf.max_form_memory_size
-    # before Connexion's handling, i.e., before auth and validation; also
-    # checks limits set in the Flask config later
+    # before Connexion's handling, i.e., before auth and validation: tokens
+    # first, so that bodies of requests without a valid token aren't read at
+    # all (the size check reads bodies without a declared size); the size
+    # check also checks limits set in the Flask config later
+    app.app.before_request(_check_bearer_token)
     app.app.before_request(_check_body_size)
     if conf.debug and not _is_loopback(conf.host):
         logger.warning(
