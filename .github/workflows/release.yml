@@ -1,4 +1,5 @@
-# Release when a version tag (`vX.Y.Z`) is pushed: check the release and that
+# Release when a version tag (`vX.Y.Z`) is pushed: check the release (a
+# signed tag, a version that is not on PyPI or Docker Hub yet) and that
 # CI passed for its commit, and build the distributions (`prepare`), build the Docker images and push them by
 # digest (untagged; `push`), scan exactly those digests in jobs without the
 # release credentials and signing identity (`scan`), release the
@@ -65,18 +66,35 @@ jobs:
           fetch-depth: 0
       - name: Check release tag and commit
         id: version
-        # Guards against accidental releases from unmerged commits. The
-        # `release` environment's protection rules (required reviewer, release
-        # tags only) are what actually control publishing.
+        # Guards against accidental releases, e.g., of unsigned tags or
+        # unmerged commits. The `release` environment's protection rules
+        # (required reviewer, release tags only) are what actually control
+        # publishing. Runs no code of the tagged commit, as in proTES; the
+        # shared `check-release` action of elixir-cloud-aai/.github is to
+        # replace this step once it is released (elixir-cloud-aai/.github#82)
         env:
           TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+((a|b|rc)[0-9]+)?$ ]]; then
-              echo "Tag '${TAG}' is not a release version (e.g., v1.2.3 or v1.2.3rc1)" >&2
+              echo "::error::Tag '${TAG}' is not a release version (e.g., v1.2.3 or v1.2.3rc1)"
+              exit 1
+          fi
+          # Annotated, with a signature that GitHub verified (`git tag -s`,
+          # with a key registered with GitHub)
+          if [[ "$(git cat-file -t "refs/tags/${TAG}")" != "tag" ]]; then
+              echo "::error::Tag '${TAG}' is not annotated (git tag -s)"
+              exit 1
+          fi
+          verified="$(gh api "repos/${REPOSITORY}/git/tags/$(git rev-parse "refs/tags/${TAG}")" \
+              --jq .verification.verified)"
+          if [[ "${verified}" != "true" ]]; then
+              echo "::error::Tag '${TAG}' has no signature verified by GitHub (git tag -s)"
               exit 1
           fi
           if ! git merge-base --is-ancestor HEAD origin/main; then
-              echo "Release commit is not on 'main'" >&2
+              echo "::error::Release commit is not on 'main'"
               exit 1
           fi
           echo "version=${TAG#v}" >> "${GITHUB_OUTPUT}"
@@ -92,6 +110,59 @@ jobs:
               echo "prerelease=true" >> "${GITHUB_OUTPUT}"
           else
               echo "prerelease=false" >> "${GITHUB_OUTPUT}"
+          fi
+      # Versions are immutable: PyPI never accepts files of a version again,
+      # and moving image tags would replace images that were published
+      # already. A run for a version that is already on PyPI or has an image
+      # tag on Docker Hub (`X.Y.Z` or `X.Y.Z-pyV`) is therefore a mistake, as
+      # is "Re-run all jobs" after the package or images were released,
+      # which would build new ones: both fail here, before anything is built.
+      # "Re-run failed jobs" doesn't run this job again. Both registries are
+      # public, so no credentials are needed; a failed lookup fails the step
+      - name: Check that the version is not released yet
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          PACKAGE: foca
+          HUB_NAMESPACE: ${{ vars.DOCKERHUB_ORG || 'elixircloud' }}
+          HUB_REPOSITORY: ${{ github.event.repository.name }}
+        run: |
+          status="$(curl --silent --show-error --max-time 30 --output /dev/null \
+              --write-out '%{http_code}' "https://pypi.org/pypi/${PACKAGE}/${VERSION}/json" \
+              || true)"
+          if [[ "${status}" == "200" ]]; then
+              echo "::error::${PACKAGE} ${VERSION} is already on PyPI: release a new version (versions can't be reused); if a release run failed, re-run only its failed jobs"
+              exit 1
+          elif [[ "${status}" != "404" ]]; then
+              echo "::error::Could not look up ${PACKAGE} ${VERSION} on PyPI (HTTP ${status}): re-run this job"
+              exit 1
+          fi
+          # Tags whose names contain the version (Docker Hub's filter); no
+          # repository (e.g., in a fork without images): no tags
+          tags="$(mktemp)"
+          status="$(curl --silent --show-error --max-time 30 --output "${tags}" \
+              --write-out '%{http_code}' \
+              "https://hub.docker.com/v2/namespaces/${HUB_NAMESPACE}/repositories/${HUB_REPOSITORY}/tags?name=${VERSION}&page_size=100" \
+              || true)"
+          if [[ "${status}" == "404" ]]; then
+              exit 0
+          elif [[ "${status}" != "200" ]]; then
+              echo "::error::Could not look up the image tags of ${VERSION} on Docker Hub (HTTP ${status}): re-run this job"
+              exit 1
+          fi
+          # `X.Y.Z` and `X.Y.Z-pyV` only (e.g., not `X.Y.Zrc1`); more tags
+          # than one page fail, so that none is missed
+          if ! existing="$(jq -r --arg version "${VERSION}" '
+              if .next != null then error("more than one page of tags") else . end
+              | .results[].name
+              | select(. == $version or (startswith($version + "-py")
+                  and (.[($version | length) + 3:] | test("^[0-9]+\\.[0-9]+$"))))
+              ' "${tags}")"; then
+              echo "::error::Unexpected response of Docker Hub for the image tags of ${VERSION}: re-run this job"
+              exit 1
+          fi
+          if [[ -n "${existing}" ]]; then
+              echo "::error::Image tags of ${VERSION} are already on Docker Hub (${HUB_NAMESPACE}/${HUB_REPOSITORY}): ${existing//$'\n'/, }; release a new version (versions can't be reused); if a release run failed, re-run only its failed jobs"
+              exit 1
           fi
       # The checks here don't run the tests: require a successful run of the
       # CI workflow for a push of the release commit (to `dev`); runs for pull
@@ -361,6 +432,40 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # Published image tags never move: `X.Y.Z-pyV` (and, for the default
+      # Python version, `X.Y.Z`) must not exist yet, or point to this run's
+      # digest already (a re-run of failed jobs, which reuses the digest).
+      # Otherwise (e.g., "Re-run all jobs", which builds new digests, or a
+      # tag pushed by hand) the job fails here, before anything is attested,
+      # signed or tagged; `prepare` checks the same for new runs. `latest` is
+      # meant to move. The repository is public, so no credentials are
+      # needed; a failed lookup other than "not found" fails the step
+      - name: Check image tags
+        env:
+          DIGEST: ${{ steps.digest.outputs.digest }}
+          PY_VERSION: ${{ matrix.python-version }}
+          DEFAULT: ${{ matrix.default }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          tags=("${IMAGE_NAME}:${VERSION}-py${PY_VERSION}")
+          if [[ "${DEFAULT}" == "true" ]]; then
+              tags+=("${IMAGE_NAME}:${VERSION}")
+          fi
+          errors="$(mktemp)"
+          for tag in "${tags[@]}"; do
+              if manifest="$(docker buildx imagetools inspect "${tag}" \
+                  --format '{{ json .Manifest }}' 2> "${errors}")"; then
+                  actual="$(jq -r .digest <<< "${manifest}")"
+                  if [[ "${actual}" != "${DIGEST}" ]]; then
+                      echo "::error::${tag} already points to ${actual}, not to this run's digest ${DIGEST} (a re-run of all jobs builds new images): release a new version (versions can't be reused); if a release run failed, re-run only its failed jobs"
+                      exit 1
+                  fi
+              elif ! grep -q "not found" "${errors}"; then
+                  cat "${errors}" >&2
+                  echo "::error::Could not look up ${tag}: re-run this job"
+                  exit 1
+              fi
+          done
       - name: Attest build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:

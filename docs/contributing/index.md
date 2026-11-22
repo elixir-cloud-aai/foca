@@ -285,7 +285,11 @@ tag (check that it is on the release commit with `git rev-parse
 
 Pushing the tag triggers the [release
 workflow](https://github.com/elixir-cloud-aai/foca/blob/dev/.github/workflows/release.yml),
-which checks that the tagged commit is on `main`, that CI passed for it (a
+which checks that the tag is annotated and has a signature that GitHub
+verified (`git tag -s`, with a key registered with your GitHub account),
+that the tagged commit is on `main`, that the version is neither on PyPI nor
+has an image tag (`X.Y.Z` or `X.Y.Z-pyV`) on Docker Hub yet, that CI passed
+for the commit (a
 successful run of `ci.yml` for a push of the commit to `dev`, which is why
 `main` moves by fast-forward only; the job fails while CI is still running or
 if there is no such run, and says to re-run the workflow once CI passed), that
@@ -340,7 +344,11 @@ fails, re-run only its failed jobs ("Re-run failed jobs"), never all of them
 approval. Builds are not
 reproducible, so the build jobs would build new distributions and images:
 the assets of the GitHub release would then differ from the files on PyPI,
-and the image tags would move to new images. If the tagged commit itself is
+and the image tags would move to new images. The workflow therefore fails a
+re-run of all jobs once the package or an image tag of the version is
+published (`prepare`), and `release-image` fails before it attests, signs or
+tags anything if `X.Y.Z-pyV` or `X.Y.Z` already points to another digest
+(`latest` is meant to move). If the tagged commit itself is
 wrong, release a new version.
 
 ### Release notes
