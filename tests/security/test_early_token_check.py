@@ -443,11 +443,30 @@ class TestUnchecked:
         """Bodies are read before Connexion's checks, as before."""
         token = _token() if path == "/both" else "opaque"
         header = None if path in {"/optional", "/public"} else f"Bearer {token}"
-        response = _post(app, path, header, **headers)
+        # whether the body was read when the token was validated
+        read_first: list[bool] = []
+        validate = auth._validate
+
+        def _validate(*args: Any, **kwargs: Any) -> Any:
+            read_first.append(body_reads.called)
+            return validate(*args, **kwargs)
+
+        with mock.patch.object(auth, "_validate", _validate):
+            response = _post(app, path, header, **headers)
         assert body_reads.called
+        assert read_first == ([True] if path == "/both" else [])
         assert response.status_code == 200
         if path != "/both":
             assert response.json() == subject
+
+    def test_without_config(self, tmp_path: Path, body_reads: MagicMock) -> None:
+        """Apps created without a config are checked, too."""
+        spec_file = tmp_path / "spec.yaml"
+        spec_file.write_text(yaml.safe_dump(SPEC))
+        cnx_app = register_exception_handler(create_connexion_app())
+        app = register_openapi(app=cnx_app, specs=[SpecConfig(path=spec_file)]).app
+        assert _post(app, "/required", None).status_code == 401
+        assert not body_reads.called
 
     def test_unmatched(self, idp: MagicMock, app: Flask) -> None:
         """Requests matching no operation aren't checked."""

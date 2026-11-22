@@ -49,6 +49,11 @@ def create_connexion_app(config: Config | None = None) -> App:
     )
     app.app.url_build_error_handlers.append(_build_root_spec_url)
     _install_route_table(app)
+    # before Connexion's handling, i.e., before auth and validation, also
+    # without config; tokens first, so that bodies of requests without a
+    # valid token aren't read at all (the size check, registered with the
+    # config, reads bodies without a declared size)
+    app.app.before_request(_check_bearer_token)
     logger.debug("Connexion app created.")
 
     # Configure Connexion app
@@ -207,11 +212,8 @@ def __add_config_to_connexion_app(
     app.app.config["TESTING"] = conf.testing
     app.app.config["MAX_CONTENT_LENGTH"] = conf.max_content_length
     app.app.config["MAX_FORM_MEMORY_SIZE"] = conf.max_form_memory_size
-    # before Connexion's handling, i.e., before auth and validation: tokens
-    # first, so that bodies of requests without a valid token aren't read at
-    # all (the size check reads bodies without a declared size); the size
-    # check also checks limits set in the Flask config later
-    app.app.before_request(_check_bearer_token)
+    # before Connexion's handling, i.e., before auth and validation, after
+    # the token check; also checks limits set in the Flask config later
     app.app.before_request(_check_body_size)
     if conf.debug and not _is_loopback(conf.host):
         logger.warning(

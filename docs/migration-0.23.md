@@ -349,7 +349,9 @@ their body unread:
   applies to both, as before, if it is replaced while the API is added
   (`register_openapi()`, `add_api()`). Apps that mock Connexion's security
   handler instead (e.g., `verify_bearer`) also need to replace
-  `validate_token`, or send valid tokens.
+  `validate_token`, or send valid tokens. A replacement is called twice for
+  requests with a token (by FOCA's check and by Connexion), unless it reuses
+  its result within the request as `validate_token` does.
 - `before_request` hooks of apps run after FOCA's check, so on these
   operations, requests without a valid token get `401` before such hooks
   can answer them (e.g., with `503` in a maintenance mode, or `429` from a
