@@ -1,6 +1,7 @@
 # Release when a version tag (`vX.Y.Z`) is pushed: check the release (a
-# signed tag, a version that is not on PyPI or Docker Hub yet) and that
-# CI passed for its commit, and build the distributions (`prepare`), build the Docker images and push them by
+# signed tag, a version that is not on PyPI or Docker Hub yet) and that CI
+# passed for its commit, and build the distributions (`prepare`), build the
+# Docker images and push them by
 # digest (untagged; `push`), scan exactly those digests in jobs without the
 # release credentials and signing identity (`scan`), release the
 # distributions to PyPI (`pypi`), attest, sign and only then tag the scanned
@@ -114,11 +115,15 @@ jobs:
       # Versions are immutable: PyPI never accepts files of a version again,
       # and moving image tags would replace images that were published
       # already. A run for a version that is already on PyPI or has an image
-      # tag on Docker Hub (`X.Y.Z` or `X.Y.Z-pyV`) is therefore a mistake, as
-      # is "Re-run all jobs" after the package or images were released,
-      # which would build new ones: both fail here, before anything is built.
-      # "Re-run failed jobs" doesn't run this job again. Both registries are
-      # public, so no credentials are needed; a failed lookup fails the step
+      # tag on Docker Hub (`X.Y.Z` or `X.Y.Z-pyV`, as in "Check image tags"
+      # of `release-image`) is therefore a mistake, as is "Re-run all jobs"
+      # after the package or images were released, which would build new
+      # ones: both fail here, before anything is built. "Re-run failed jobs"
+      # doesn't run this job again. Both registries are public, so no
+      # credentials are needed; a failed lookup fails the step. Not detected:
+      # versions deleted from PyPI (whose file names PyPI still rejects) and
+      # tags in a private Docker Hub repository (e.g., of a fork; the API
+      # answers 404 as for a missing repository)
       - name: Check that the version is not released yet
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -438,8 +443,9 @@ jobs:
       # Otherwise (e.g., "Re-run all jobs", which builds new digests, or a
       # tag pushed by hand) the job fails here, before anything is attested,
       # signed or tagged; `prepare` checks the same for new runs. `latest` is
-      # meant to move. The repository is public, so no credentials are
-      # needed; a failed lookup other than "not found" fails the step
+      # meant to move. Only the registry's exact answer for a missing tag
+      # (`ERROR: <tag>: not found`, as of buildx 0.26) counts as "not
+      # found"; any other failed lookup fails the step
       - name: Check image tags
         env:
           DIGEST: ${{ steps.digest.outputs.digest }}
@@ -460,7 +466,7 @@ jobs:
                       echo "::error::${tag} already points to ${actual}, not to this run's digest ${DIGEST} (a re-run of all jobs builds new images): release a new version (versions can't be reused); if a release run failed, re-run only its failed jobs"
                       exit 1
                   fi
-              elif ! grep -q "not found" "${errors}"; then
+              elif ! grep -qxF "ERROR: ${tag}: not found" "${errors}"; then
                   cat "${errors}" >&2
                   echo "::error::Could not look up ${tag}: re-run this job"
                   exit 1

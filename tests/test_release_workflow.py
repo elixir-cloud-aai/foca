@@ -6,11 +6,12 @@ for `gh`, `curl` and `docker` first in `PATH`, and in a temporary Git
 repository for the checks of the tag.
 """
 
+import functools
 import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 import yaml
@@ -61,7 +62,10 @@ esac
 # (or the error in `DOCKER_ERROR`)
 DOCKER = """#!/usr/bin/env bash
 echo "$*" >> "${CALLS}"
-ref="$4"
+ref=""
+for arg in "$@"; do
+    if [[ "${arg}" == docker.io/* ]]; then ref="${arg}"; fi
+done
 while IFS='=' read -r tag digest; do
     if [[ -n "${tag}" && "${ref}" == "${tag}" ]]; then
         printf '{"digest":"%s"}\\n' "${digest}"
@@ -71,6 +75,19 @@ done <<< "${DOCKER_MANIFESTS:-}"
 echo "ERROR: ${DOCKER_ERROR:-${ref}: not found}" >&2
 exit 1
 """
+
+
+@functools.cache
+def _steps(job: str) -> list[dict[str, Any]]:
+    """Get the steps of a job of the release workflow.
+
+    Args:
+        job: ID of the job.
+
+    Returns:
+        The steps, in order.
+    """
+    return yaml.safe_load(WORKFLOW.read_text())["jobs"][job]["steps"]
 
 
 def _step(job: str, name: str) -> dict[str, Any]:
@@ -83,8 +100,7 @@ def _step(job: str, name: str) -> dict[str, Any]:
     Returns:
         The step.
     """
-    steps = yaml.safe_load(WORKFLOW.read_text())["jobs"][job]["steps"]
-    matches = [step for step in steps if step.get("name") == name]
+    matches = [step for step in _steps(job) if step.get("name") == name]
     assert len(matches) == 1, f"{job}: {name}"
     return matches[0]
 
@@ -98,8 +114,7 @@ def _names(job: str) -> list[str]:
     Returns:
         The names, in order.
     """
-    steps = yaml.safe_load(WORKFLOW.read_text())["jobs"][job]["steps"]
-    return [step.get("name", "") for step in steps]
+    return [step.get("name", "") for step in _steps(job)]
 
 
 @pytest.fixture
@@ -163,7 +178,7 @@ def _run(
 class TestReleaseTag:
     """`prepare`, "Check release tag and commit"."""
 
-    STEP = ("prepare", "Check release tag and commit")
+    STEP: ClassVar[tuple[str, str]] = ("prepare", "Check release tag and commit")
 
     @pytest.fixture
     def repo(self, tmp_path: Path) -> Path:
@@ -231,7 +246,40 @@ class TestReleaseTag:
             check=True,
         ).stdout.strip()
         calls = (bin_dir.parent / "calls").read_text()
-        assert f"api repos/owner/foca/git/tags/{tag_sha}" in calls
+        assert (
+            f"api repos/owner/foca/git/tags/{tag_sha} --jq .verification.verified"
+            in calls
+        )
+
+    def test_not_on_main(self, repo: Path, bin_dir: Path) -> None:
+        """A signed tag of a commit that is not on `main` fails."""
+        other = subprocess.run(  # noqa: S603 (fixed arguments)
+            [
+                GIT,
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.org",
+                "commit-tree",
+                "HEAD^{tree}",
+                "-m",
+                "other",
+            ],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
+            env={**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null"},
+        ).stdout.strip()
+        subprocess.run(  # noqa: S603 (fixed arguments)
+            [GIT, "update-ref", "refs/remotes/origin/main", other],
+            cwd=repo,
+            check=True,
+        )
+        result = _run(_step(*self.STEP), self._env("v1.2.0", "true"), bin_dir, repo)
+        assert result.returncode != 0
+        assert "is not on 'main'" in result.stdout
+        assert not (bin_dir.parent / "output").exists()
 
     @pytest.mark.parametrize("verified", ["false", "null", ""])
     def test_unverified(self, repo: Path, bin_dir: Path, verified: str) -> None:
@@ -265,7 +313,10 @@ class TestReleaseTag:
 class TestVersionNotReleased:
     """`prepare`, "Check that the version is not released yet"."""
 
-    STEP = ("prepare", "Check that the version is not released yet")
+    STEP: ClassVar[tuple[str, str]] = (
+        "prepare",
+        "Check that the version is not released yet",
+    )
 
     def _env(self, pypi: str, hub: str, body: str = "") -> dict[str, str]:
         """Environment of the step.
@@ -380,8 +431,8 @@ class TestVersionNotReleased:
 class TestImageTags:
     """`release-image`, "Check image tags"."""
 
-    STEP = ("release-image", "Check image tags")
-    IMAGE = "docker.io/elixircloud/foca"
+    STEP: ClassVar[tuple[str, str]] = ("release-image", "Check image tags")
+    IMAGE: ClassVar[str] = "docker.io/elixircloud/foca"
 
     def _env(
         self, default: str, manifests: str = "", error: str = ""
@@ -444,11 +495,19 @@ class TestImageTags:
         assert result.returncode != 0
         assert OTHER_DIGEST in result.stdout
 
-    def test_registry_fails(self, bin_dir: Path) -> None:
-        """A failed lookup (other than "not found") fails."""
+    @pytest.mark.parametrize(
+        "error",
+        [
+            "toomanyrequests: rate limit",
+            # "not found", but not of the tag itself (e.g., of a blob)
+            "docker.io/elixircloud/foca@sha256:0: not found",
+        ],
+    )
+    def test_registry_fails(self, bin_dir: Path, error: str) -> None:
+        """A failed lookup (other than the tag "not found") fails."""
         result = _run(
             _step(*self.STEP),
-            self._env("true", error="toomanyrequests: rate limit"),
+            self._env("true", error=error),
             bin_dir,
             bin_dir.parent,
         )

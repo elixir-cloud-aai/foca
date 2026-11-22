@@ -283,14 +283,21 @@ instead of repeating the steps: `git tag -s` refuses to replace the existing
 tag (check that it is on the release commit with `git rev-parse
 'vX.Y.Z^{commit}'`).
 
+The release workflow requires a signature that GitHub verified: sign with a
+GPG or SSH key that is registered as a *signing* key with your GitHub
+account (an SSH authentication key is not enough), and check that the tag
+shows "Verified" on GitHub. A run for an unsigned or unverified tag fails
+before anything is built; the tag can't be replaced (see below), so release
+the next patch version with a signed tag.
+
 Pushing the tag triggers the [release
 workflow](https://github.com/elixir-cloud-aai/foca/blob/dev/.github/workflows/release.yml),
 which checks that the tag is annotated and has a signature that GitHub
-verified (`git tag -s`, with a key registered with your GitHub account),
-that the tagged commit is on `main`, that the version is neither on PyPI nor
-has an image tag (`X.Y.Z` or `X.Y.Z-pyV`) on Docker Hub yet, that CI passed
-for the commit (a
-successful run of `ci.yml` for a push of the commit to `dev`, which is why
+verified, that the tagged commit is on `main`, that the version is neither
+on PyPI nor has an image tag (`X.Y.Z` or `X.Y.Z-pyV`) on Docker Hub yet (if
+one of these lookups fails, e.g., while a registry is down, re-run the job),
+that CI passed for the commit (a successful run of `ci.yml` for a push of
+the commit to `dev`, which is why
 `main` moves by fast-forward only; the job fails while CI is still running or
 if there is no such run, and says to re-run the workflow once CI passed), that
 its `CITATION.cff` has the release version and a date that is not in the
