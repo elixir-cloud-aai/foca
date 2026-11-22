@@ -72,12 +72,14 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
             return
         if self.path == "/slow":
+            # one byte every 20 ms for 5 s, or until the client hangs up
             self.send_response(200)
             self.end_headers()
-            for _ in range(20):
-                self.wfile.write(b"x" * 10)
-                self.wfile.flush()
-                time.sleep(0.02)
+            with contextlib.suppress(OSError):
+                for _ in range(250):
+                    self.wfile.write(b"x")
+                    self.wfile.flush()
+                    time.sleep(0.02)
             return
         if self.path == "/cookie":
             self.send_response(200)
@@ -123,6 +125,58 @@ def server() -> Iterator[str]:
     yield f"http://127.0.0.1:{httpd.server_address[1]}"
     httpd.shutdown()
     httpd.server_close()
+
+
+# Seconds that requests in deadline tests get before their deadline: enough
+# for the client to connect also on slow, busy runners (coverage, debug
+# logs), so that only the read can reach the deadline
+CONNECT_ROOM = 0.5
+
+
+class FakeClock:
+    """Clock of :py:mod:`foca.utils.http` that moves only when told.
+
+    Attributes:
+        now: Current `time.monotonic()` value.
+    """
+
+    def __init__(self) -> None:
+        """Start the clock at zero."""
+        self.now = 0.0
+
+    def monotonic(self) -> float:
+        """Get the current time.
+
+        Returns:
+            Seconds.
+        """
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        """Move the clock forward.
+
+        Args:
+            seconds: Seconds.
+        """
+        self.now += seconds
+
+
+@pytest.fixture
+def clock(monkeypatch: pytest.MonkeyPatch) -> FakeClock:
+    """Replace the clock of :py:mod:`foca.utils.http` with a fake one.
+
+    Budgets and deadlines then depend on the fake time only; timers and
+    socket timeouts still run in real time.
+
+    Args:
+        monkeypatch: Pytest fixture.
+
+    Returns:
+        Fake clock.
+    """
+    fake = FakeClock()
+    monkeypatch.setattr(http, "time", SimpleNamespace(monotonic=fake.monotonic))
+    return fake
 
 
 def local(**kwargs: Any) -> GuardedClient:
@@ -266,9 +320,11 @@ def test_deadline(server: str) -> None:
     """Requests end by the deadline."""
     with pytest.raises(DeadlineExceeded):
         local(deadline=time.monotonic() - 1).get(f"{server}/ok")
+    started = time.monotonic()
     with pytest.raises(RequestMaybeSent) as info:
-        local(deadline=time.monotonic() + 0.1).get(f"{server}/slow")
+        local(deadline=time.monotonic() + CONNECT_ROOM).get(f"{server}/slow")
     assert info.value.reason == "read_timeout"
+    assert time.monotonic() - started < 2  # long before the server ends
     client = local(timeout=5)
     assert client.remaining() == 5
     client.deadline = time.monotonic() + 1
@@ -534,7 +590,7 @@ def test_deadline_bounds_reads(trickle: str, path: str) -> None:
     """Servers that send slowly cannot keep requests open."""
     started = time.monotonic()
     with pytest.raises(RequestMaybeSent) as info:
-        local(deadline=time.monotonic() + 0.3).get(f"{trickle}{path}")
+        local(deadline=time.monotonic() + CONNECT_ROOM).get(f"{trickle}{path}")
     assert info.value.reason == "read_timeout"
     assert time.monotonic() - started < 2
 
@@ -613,13 +669,15 @@ def test_address_fallback(server: str, monkeypatch: pytest.MonkeyPatch) -> None:
     assert response.json() == [1, 2]
 
 
-def test_address_fallback_bounded(server: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_address_fallback_bounded(
+    server: str, monkeypatch: pytest.MonkeyPatch, clock: FakeClock
+) -> None:
     """All addresses share the connect budget; the last error counts."""
     timeouts: list[float] = []
 
     def slow(address: Any, timeout: float, **kwargs: Any) -> socket.socket:
         timeouts.append(timeout)
-        time.sleep(min(timeout, 0.1))
+        clock.advance(min(timeout, 1.0))  # times out after up to 1 s
         raise TimeoutError("timed out")
 
     monkeypatch.setattr(http, "_resolve", lambda *args: ["10.0.0.1", "10.0.0.2"])
@@ -627,12 +685,11 @@ def test_address_fallback_bounded(server: str, monkeypatch: pytest.MonkeyPatch) 
     with pytest.raises(RequestNotSent) as info:
         local(timeout=2).get(f"{server}/ok")
     assert info.value.reason == "connect_error"
-    assert len(timeouts) == 2
-    assert timeouts[1] < timeouts[0]
+    assert timeouts == [2.0, 1.0]  # the second address gets what is left
     timeouts.clear()
     with pytest.raises(RequestNotSent):
-        local(timeout=0.08).get(f"{server}/ok")
-    assert len(timeouts) == 1  # no time left for the second address
+        local(timeout=0.5).get(f"{server}/ok")
+    assert timeouts == [0.5]  # no time left for the second address
 
 
 def test_rebinding(server: str, monkeypatch: pytest.MonkeyPatch) -> None:
