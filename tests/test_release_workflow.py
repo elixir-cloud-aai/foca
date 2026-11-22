@@ -23,6 +23,17 @@ OTHER_DIGEST = "sha256:" + "b" * 64
 BASH = shutil.which("bash") or "bash"
 GIT = shutil.which("git") or "git"
 
+# Git without the user's configuration (e.g., signing), with an identity
+GIT_ENV = {
+    **os.environ,
+    "GIT_CONFIG_GLOBAL": "/dev/null",
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "GIT_AUTHOR_NAME": "Test",
+    "GIT_AUTHOR_EMAIL": "test@example.org",
+    "GIT_COMMITTER_NAME": "Test",
+    "GIT_COMMITTER_EMAIL": "test@example.org",
+}
+
 pytestmark = pytest.mark.skipif(
     not (shutil.which("bash") and shutil.which("git") and shutil.which("jq")),
     reason="needs bash, git and jq",
@@ -194,15 +205,6 @@ class TestReleaseTag:
         """
         path = tmp_path / "repo"
         path.mkdir()
-        env = {
-            **os.environ,
-            "GIT_CONFIG_GLOBAL": "/dev/null",
-            "GIT_CONFIG_NOSYSTEM": "1",
-            "GIT_AUTHOR_NAME": "Test",
-            "GIT_AUTHOR_EMAIL": "test@example.org",
-            "GIT_COMMITTER_NAME": "Test",
-            "GIT_COMMITTER_EMAIL": "test@example.org",
-        }
         for args in (
             ["init", "--quiet"],
             ["commit", "--quiet", "--allow-empty", "-m", "release"],
@@ -211,7 +213,7 @@ class TestReleaseTag:
             ["tag", "v1.3.0"],
         ):
             subprocess.run(  # noqa: S603 (fixed arguments)
-                [GIT, *args], cwd=path, env=env, check=True
+                [GIT, *args], cwd=path, env=GIT_ENV, check=True
             )
         return path
 
@@ -253,29 +255,16 @@ class TestReleaseTag:
 
     def test_not_on_main(self, repo: Path, bin_dir: Path) -> None:
         """A signed tag of a commit that is not on `main` fails."""
-        other = subprocess.run(  # noqa: S603 (fixed arguments)
-            [
-                GIT,
-                "-c",
-                "user.name=Test",
-                "-c",
-                "user.email=test@example.org",
-                "commit-tree",
-                "HEAD^{tree}",
-                "-m",
-                "other",
-            ],
-            cwd=repo,
-            capture_output=True,
-            text=True,
-            check=True,
-            env={**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null"},
-        ).stdout.strip()
-        subprocess.run(  # noqa: S603 (fixed arguments)
-            [GIT, "update-ref", "refs/remotes/origin/main", other],
-            cwd=repo,
-            check=True,
-        )
+        # `origin/main` moves to an unrelated commit; HEAD stays on the tag
+        for args in (
+            ["checkout", "--quiet", "--orphan", "other"],
+            ["commit", "--quiet", "--allow-empty", "-m", "other"],
+            ["update-ref", "refs/remotes/origin/main", "HEAD"],
+            ["checkout", "--quiet", "v1.2.0"],
+        ):
+            subprocess.run(  # noqa: S603 (fixed arguments)
+                [GIT, *args], cwd=repo, env=GIT_ENV, check=True
+            )
         result = _run(_step(*self.STEP), self._env("v1.2.0", "true"), bin_dir, repo)
         assert result.returncode != 0
         assert "is not on 'main'" in result.stdout
