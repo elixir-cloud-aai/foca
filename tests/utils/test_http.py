@@ -72,12 +72,14 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
             return
         if self.path == "/slow":
+            # one byte every 20 ms for 5 s, or until the client hangs up
             self.send_response(200)
             self.end_headers()
-            for _ in range(20):
-                self.wfile.write(b"x" * 10)
-                self.wfile.flush()
-                time.sleep(0.02)
+            with contextlib.suppress(OSError):
+                for _ in range(250):
+                    self.wfile.write(b"x")
+                    self.wfile.flush()
+                    time.sleep(0.02)
             return
         if self.path == "/cookie":
             self.send_response(200)
@@ -123,6 +125,60 @@ def server() -> Iterator[str]:
     yield f"http://127.0.0.1:{httpd.server_address[1]}"
     httpd.shutdown()
     httpd.server_close()
+
+
+# Seconds that requests in deadline tests get before their deadline: enough
+# for the client to connect also on slow, busy runners (coverage, debug
+# logs), so that only the read can reach the deadline
+CONNECT_ROOM = 1.0
+
+
+class FakeClock:
+    """Clock of :py:mod:`foca.utils.http` that moves only when told.
+
+    Attributes:
+        now: Current `time.monotonic()` value.
+    """
+
+    def __init__(self) -> None:
+        """Start the clock at zero."""
+        self.now = 0.0
+
+    def monotonic(self) -> float:
+        """Get the current time.
+
+        Returns:
+            Seconds.
+        """
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        """Move the clock forward.
+
+        Args:
+            seconds: Seconds.
+        """
+        self.now += seconds
+
+
+@pytest.fixture
+def clock(monkeypatch: pytest.MonkeyPatch) -> FakeClock:
+    """Replace the clock of :py:mod:`foca.utils.http` with a fake one.
+
+    Budgets and deadlines then depend on the fake time only; timers and
+    socket timeouts still run in real time. The fake `time` module has
+    `monotonic` only (all that the module uses), so that other uses fail
+    loudly instead of mixing real and fake time.
+
+    Args:
+        monkeypatch: Pytest fixture.
+
+    Returns:
+        Fake clock.
+    """
+    fake = FakeClock()
+    monkeypatch.setattr(http, "time", SimpleNamespace(monotonic=fake.monotonic))
+    return fake
 
 
 def local(**kwargs: Any) -> GuardedClient:
@@ -266,9 +322,11 @@ def test_deadline(server: str) -> None:
     """Requests end by the deadline."""
     with pytest.raises(DeadlineExceeded):
         local(deadline=time.monotonic() - 1).get(f"{server}/ok")
+    started = time.monotonic()
     with pytest.raises(RequestMaybeSent) as info:
-        local(deadline=time.monotonic() + 0.1).get(f"{server}/slow")
+        local(deadline=time.monotonic() + CONNECT_ROOM).get(f"{server}/slow")
     assert info.value.reason == "read_timeout"
+    assert time.monotonic() - started < 3  # long before the server ends
     client = local(timeout=5)
     assert client.remaining() == 5
     client.deadline = time.monotonic() + 1
@@ -534,9 +592,9 @@ def test_deadline_bounds_reads(trickle: str, path: str) -> None:
     """Servers that send slowly cannot keep requests open."""
     started = time.monotonic()
     with pytest.raises(RequestMaybeSent) as info:
-        local(deadline=time.monotonic() + 0.3).get(f"{trickle}{path}")
+        local(deadline=time.monotonic() + CONNECT_ROOM).get(f"{trickle}{path}")
     assert info.value.reason == "read_timeout"
-    assert time.monotonic() - started < 2
+    assert time.monotonic() - started < 3
 
 
 def slow_resolver(seconds: float) -> Any:
@@ -613,26 +671,39 @@ def test_address_fallback(server: str, monkeypatch: pytest.MonkeyPatch) -> None:
     assert response.json() == [1, 2]
 
 
-def test_address_fallback_bounded(server: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_address_fallback_bounded(
+    server: str, monkeypatch: pytest.MonkeyPatch, clock: FakeClock
+) -> None:
     """All addresses share the connect budget; the last error counts."""
     timeouts: list[float] = []
 
     def slow(address: Any, timeout: float, **kwargs: Any) -> socket.socket:
         timeouts.append(timeout)
-        time.sleep(min(timeout, 0.1))
+        clock.advance(min(timeout, 1.0))  # fails after up to 1 s
+        if address[0] == "10.0.0.2":
+            raise ConnectionRefusedError("refused")
         raise TimeoutError("timed out")
+
+    def causes(error: BaseException | None) -> list[type[BaseException]]:
+        found: list[type[BaseException]] = []
+        while error is not None and type(error) not in found:
+            found.append(type(error))
+            error = error.__cause__ or error.__context__
+        return found
 
     monkeypatch.setattr(http, "_resolve", lambda *args: ["10.0.0.1", "10.0.0.2"])
     monkeypatch.setattr(http.urllib3_connection, "create_connection", slow)
     with pytest.raises(RequestNotSent) as info:
         local(timeout=2).get(f"{server}/ok")
     assert info.value.reason == "connect_error"
-    assert len(timeouts) == 2
-    assert timeouts[1] < timeouts[0]
+    assert timeouts == [2.0, 1.0]  # the second address gets what is left
+    assert ConnectionRefusedError in causes(info.value)  # the last error
+    assert TimeoutError not in causes(info.value)
     timeouts.clear()
-    with pytest.raises(RequestNotSent):
-        local(timeout=0.08).get(f"{server}/ok")
-    assert len(timeouts) == 1  # no time left for the second address
+    with pytest.raises(RequestNotSent) as info:
+        local(timeout=0.5).get(f"{server}/ok")
+    assert timeouts == [0.5]  # no time left for the second address
+    assert TimeoutError in causes(info.value)
 
 
 def test_rebinding(server: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -752,7 +823,7 @@ def keep_alive() -> Iterator[str]:
 
 def test_concurrent_deadlines(keep_alive: str) -> None:
     """Concurrent requests of one client keep their own deadlines."""
-    client = local(timeout=1.0)
+    client = local(timeout=1.5)
     results: dict[str, Any] = {}
 
     def get(name: str, seconds: float, delay: float) -> None:
@@ -763,9 +834,10 @@ def test_concurrent_deadlines(keep_alive: str) -> None:
             results[name] = exc
 
     threads = [
-        threading.Thread(target=get, args=("a", 0.5, 0)),
-        # ends 1.1 s after a starts, within its own second
-        threading.Thread(target=get, args=("b", 0.85, 0.25)),
+        threading.Thread(target=get, args=("a", 1.0, 0)),
+        # starts while a runs, ends 1.6 s after a starts (after a's
+        # deadline), 0.6 s before its own: room for slow runners
+        threading.Thread(target=get, args=("b", 0.9, 0.7)),
     ]
     for thread in threads:
         thread.start()
