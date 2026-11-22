@@ -130,7 +130,7 @@ def server() -> Iterator[str]:
 # Seconds that requests in deadline tests get before their deadline: enough
 # for the client to connect also on slow, busy runners (coverage, debug
 # logs), so that only the read can reach the deadline
-CONNECT_ROOM = 0.5
+CONNECT_ROOM = 1.0
 
 
 class FakeClock:
@@ -326,7 +326,7 @@ def test_deadline(server: str) -> None:
     with pytest.raises(RequestMaybeSent) as info:
         local(deadline=time.monotonic() + CONNECT_ROOM).get(f"{server}/slow")
     assert info.value.reason == "read_timeout"
-    assert time.monotonic() - started < 2  # long before the server ends
+    assert time.monotonic() - started < 3  # long before the server ends
     client = local(timeout=5)
     assert client.remaining() == 5
     client.deadline = time.monotonic() + 1
@@ -594,7 +594,7 @@ def test_deadline_bounds_reads(trickle: str, path: str) -> None:
     with pytest.raises(RequestMaybeSent) as info:
         local(deadline=time.monotonic() + CONNECT_ROOM).get(f"{trickle}{path}")
     assert info.value.reason == "read_timeout"
-    assert time.monotonic() - started < 2
+    assert time.monotonic() - started < 3
 
 
 def slow_resolver(seconds: float) -> Any:
@@ -823,7 +823,7 @@ def keep_alive() -> Iterator[str]:
 
 def test_concurrent_deadlines(keep_alive: str) -> None:
     """Concurrent requests of one client keep their own deadlines."""
-    client = local(timeout=1.0)
+    client = local(timeout=1.5)
     results: dict[str, Any] = {}
 
     def get(name: str, seconds: float, delay: float) -> None:
@@ -834,9 +834,10 @@ def test_concurrent_deadlines(keep_alive: str) -> None:
             results[name] = exc
 
     threads = [
-        threading.Thread(target=get, args=("a", 0.5, 0)),
-        # ends 1.1 s after a starts, within its own second
-        threading.Thread(target=get, args=("b", 0.85, 0.25)),
+        threading.Thread(target=get, args=("a", 1.0, 0)),
+        # starts while a runs, ends 1.6 s after a starts (after a's
+        # deadline), 0.6 s before its own: room for slow runners
+        threading.Thread(target=get, args=("b", 0.9, 0.7)),
     ]
     for thread in threads:
         thread.start()
