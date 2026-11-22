@@ -195,7 +195,8 @@ class TestReleaseTag:
     def repo(self, tmp_path: Path) -> Path:
         """Git repository with a commit on `origin/main` and tags of it.
 
-        Tags: `v1.2.0` (annotated), `v1.3.0` (lightweight).
+        Tags: `v1.2.0` (annotated), `v1.3.0` (lightweight), `v1.2` (annotated,
+        no release version), `v1.4.0` (a tag object named `v1.2.0`).
 
         Args:
             tmp_path: Temporary directory of the test.
@@ -211,6 +212,9 @@ class TestReleaseTag:
             ["update-ref", "refs/remotes/origin/main", "HEAD"],
             ["tag", "-a", "v1.2.0", "-m", "v1.2.0"],
             ["tag", "v1.3.0"],
+            ["tag", "-a", "v1.2", "-m", "v1.2"],
+            # A copy of the tag object of `v1.2.0` under another name
+            ["update-ref", "refs/tags/v1.4.0", "refs/tags/v1.2.0"],
         ):
             subprocess.run(  # noqa: S603 (fixed arguments)
                 [GIT, *args], cwd=path, env=GIT_ENV, check=True
@@ -292,10 +296,18 @@ class TestReleaseTag:
         assert "is not annotated" in result.stdout + result.stderr
         assert not (bin_dir.parent / "calls").exists()
 
+    def test_other_tag_object(self, repo: Path, bin_dir: Path) -> None:
+        """A tag object named for another version fails, before the API call."""
+        result = _run(_step(*self.STEP), self._env("v1.4.0", "true"), bin_dir, repo)
+        assert result.returncode != 0
+        assert "tag object of another name" in result.stdout
+        assert not (bin_dir.parent / "calls").exists()
+
     def test_no_release_version(self, repo: Path, bin_dir: Path) -> None:
         """A tag that is no release version fails, before any call of the API."""
         result = _run(_step(*self.STEP), self._env("v1.2", "true"), bin_dir, repo)
         assert result.returncode != 0
+        assert "is not a release version" in result.stdout
         assert not (bin_dir.parent / "calls").exists()
 
 
@@ -407,6 +419,8 @@ class TestVersionNotReleased:
             ("404", "429", ""),
             ("404", "200", "no json"),
             ("404", "200", '{"next":"https://hub.docker.com/next","results":[]}'),
+            ("404", "200", '{"next":null}'),
+            ("404", "200", '{"next":null,"results":null}'),
         ],
     )
     def test_lookup_fails(self, bin_dir: Path, pypi: str, hub: str, body: str) -> None:

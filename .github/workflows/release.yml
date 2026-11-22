@@ -88,6 +88,12 @@ jobs:
               echo "::error::Tag '${TAG}' is not annotated (git tag -s)"
               exit 1
           fi
+          # The signed tag object names this tag, so that a signed tag of
+          # another version can't be pushed under this name
+          if [[ "$(git for-each-ref --format='%(tag)' "refs/tags/${TAG}")" != "${TAG}" ]]; then
+              echo "::error::Tag '${TAG}' points to a tag object of another name"
+              exit 1
+          fi
           verified="$(gh api "repos/${REPOSITORY}/git/tags/$(git rev-parse "refs/tags/${TAG}")" \
               --jq .verification.verified)"
           if [[ "${verified}" != "true" ]]; then
@@ -157,7 +163,9 @@ jobs:
           # `X.Y.Z` and `X.Y.Z-pyV` only (e.g., not `X.Y.Zrc1`); more tags
           # than one page fail, so that none is missed
           if ! existing="$(jq -r --arg version "${VERSION}" '
-              if .next != null then error("more than one page of tags") else . end
+              if (.results | type) != "array" then error("no list of tags")
+              elif .next != null then error("more than one page of tags")
+              else . end
               | .results[].name
               | select(. == $version or (startswith($version + "-py")
                   and (.[($version | length) + 3:] | test("^[0-9]+\\.[0-9]+$"))))
