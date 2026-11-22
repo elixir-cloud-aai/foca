@@ -343,12 +343,17 @@ their body unread:
 - Anonymous requests with too large bodies get `401` instead of `413` on
   these operations; requests with a valid token get `413` as before.
 - Each token is validated once per request: Connexion's security handler
-  gets the token info of FOCA's check. Replacing
-  `foca.security.auth.validate_token` (e.g., with `monkeypatch.setattr()` in
-  tests) still applies to both, as long as it's replaced before requests are
-  handled. Apps that mock Connexion's security handler instead (e.g.,
-  `verify_bearer`) also need to replace `validate_token`, or send valid
-  tokens.
+  gets the token info of FOCA's check. FOCA's check calls the function that
+  Connexion resolved for the scheme when the API was added, so replacing
+  `foca.security.auth.validate_token` (e.g., with `mock.patch()` in tests)
+  applies to both, as before, if it is replaced while the API is added
+  (`register_openapi()`, `add_api()`). Apps that mock Connexion's security
+  handler instead (e.g., `verify_bearer`) also need to replace
+  `validate_token`, or send valid tokens.
+- `before_request` hooks of apps run after FOCA's check, so on these
+  operations, requests without a valid token get `401` before such hooks
+  can answer them (e.g., with `503` in a maintenance mode, or `429` from a
+  rate limit).
 
 Operations with optional tokens, API keys or other validation functions are
 handled as before.

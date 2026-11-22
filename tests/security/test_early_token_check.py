@@ -184,6 +184,18 @@ def idp(monkeypatch: pytest.MonkeyPatch) -> Iterator[MagicMock]:
 @pytest.fixture
 def app(tmp_path: Path) -> Flask:
     """App with the test API."""
+    return _app(tmp_path)
+
+
+def _app(tmp_path: Path) -> Flask:
+    """Create app with the test API.
+
+    Args:
+        tmp_path: Directory for the specification.
+
+    Returns:
+        Flask app.
+    """
     spec_file = tmp_path / "spec.yaml"
     spec_file.write_text(yaml.safe_dump(SPEC))
     config = Config.model_validate(
@@ -295,6 +307,28 @@ class TestEarlyCheck:
         assert 'error="invalid_token"' in response.headers["WWW-Authenticate"]
         assert not body_reads.called
 
+    @pytest.mark.parametrize(
+        "header",
+        [
+            pytest.param(None, id="none"),
+            pytest.param("Basic abc", id="other-scheme"),
+            pytest.param("Bearer", id="no-token"),
+            pytest.param("Bearer not-a-jwt", id="malformed"),
+        ],
+    )
+    def test_same_as_connexion(
+        self, idp: MagicMock, app: Flask, header: str | None
+    ) -> None:
+        """Rejections are those of Connexion's security handler."""
+        early = _post(app, "/required", header)
+        with mock.patch.object(auth, "_requires_bearer_token", return_value=False):
+            late = _post(app, "/required", header)
+        assert early.status_code == late.status_code == 401
+        assert early.json() == late.json()
+        assert early.headers.get("WWW-Authenticate") == late.headers.get(
+            "WWW-Authenticate"
+        )
+
     def test_no_body(self, idp: MagicMock, app: Flask, body_reads: MagicMock) -> None:
         """Operations without a request body are checked, too."""
         response = Client(app).get("/required")
@@ -363,6 +397,22 @@ class TestEarlyCheck:
         )
         assert response.status_code == 400
 
+    def test_function_resolved_when_added(
+        self, idp: MagicMock, tmp_path: Path, body_reads: MagicMock
+    ) -> None:
+        """Tokens are checked with the function Connexion resolved."""
+        stub = MagicMock(return_value={"sub": "stub"})
+        with mock.patch.object(auth, "validate_token", stub):
+            app = _app(tmp_path)
+        response = _post(app, "/required", "Bearer opaque")
+        assert response.status_code == 200
+        assert response.json() == "stub"
+        assert stub.call_args.args == ("opaque",)
+        stub.side_effect = auth.Unauthorized("no")
+        body_reads.reset_mock()
+        assert _post(app, "/required", "Bearer opaque").status_code == 401
+        assert not body_reads.called
+
     def test_preflight_unchecked(self, idp: MagicMock, app: Flask) -> None:
         """`OPTIONS` requests that Flask answers aren't checked."""
         assert Client(app).options("/required").status_code == 200
@@ -404,6 +454,40 @@ class TestUnchecked:
         assert Client(app).post("/unknown", json=BODY).status_code == 404
 
 
+def test_other_routes_unchecked(idp: MagicMock, tmp_path: Path) -> None:
+    """Routes that aren't operations aren't checked, also if paths match."""
+    operation = _operation("get", None)
+    operation["parameters"] = [
+        {"name": "name", "in": "path", "required": True, "schema": {"type": "string"}}
+    ]
+    spec = {**SPEC, "paths": {"/{name}": {"get": operation}}}
+    spec_file = tmp_path / "spec.yaml"
+    spec_file.write_text(yaml.safe_dump(spec))
+    cnx_app = register_exception_handler(create_connexion_app(Config()))
+    app = register_openapi(app=cnx_app, specs=[SpecConfig(path=spec_file)]).app
+    app.add_url_rule("/health", "health", lambda: "OK")
+    client = Client(app)
+    assert client.get("/health").status_code == 200
+    assert client.get("/ui/").status_code == 200
+    assert client.get("/openapi.json").status_code == 200
+    assert client.get("/pets").status_code == 401
+
+
+def test_app_route_same_rule_unchecked(idp: MagicMock, tmp_path: Path) -> None:
+    """App routes with an operation's rule and method aren't checked."""
+    spec_file = tmp_path / "spec.yaml"
+    spec_file.write_text(yaml.safe_dump(SPEC))
+    cnx_app = register_exception_handler(create_connexion_app(Config()))
+    # added first, so that Flask routes requests to it
+    cnx_app.app.add_url_rule("/required", "mine", lambda: "public", methods=["POST"])
+    app = register_openapi(app=cnx_app, specs=[SpecConfig(path=spec_file)]).app
+    response = Client(app).post("/required", json=BODY)
+    assert response.status_code == 200
+    assert response.text == "public"
+    # the operation's own rule is still checked
+    assert Client(app).get("/required").status_code == 401
+
+
 class TestValidateTokenCache:
     """Tests of reusing validated token info within a request."""
 
@@ -428,6 +512,30 @@ class TestValidateTokenCache:
             assert auth.validate_token(_token(sub="bob"))["user_id"] == "bob"
         assert validate.call_count == 2
 
+    def test_invalid_not_cached(self, idp: MagicMock, app: Flask) -> None:
+        """Rejected tokens are validated again."""
+        token = _token(aud="other")
+        with (
+            request_context(app=app),
+            mock.patch.object(auth, "_validate", wraps=auth._validate) as validate,
+        ):
+            for _ in range(2):
+                with pytest.raises(auth.Unauthorized):
+                    auth.validate_token(token)
+        assert validate.call_count == 2
+
+    def test_no_request(self, idp: MagicMock, app: Flask) -> None:
+        """Outside requests, tokens are validated each time."""
+        token = _token()
+        with (
+            app.app_context(),
+            mock.patch.object(auth, "_validate", wraps=auth._validate) as validate,
+        ):
+            for _ in range(2):
+                assert auth.validate_token(token)["user_id"] == "alice"
+            assert "foca_token_info" not in auth.g
+        assert validate.call_count == 2
+
     def test_other_request(self, idp: MagicMock, app: Flask) -> None:
         """Tokens are validated again in other requests of an app context."""
         token = _token()
@@ -441,8 +549,24 @@ class TestValidateTokenCache:
         assert validate.call_count == 2
 
 
-def _route(security: list[dict[str, Any]] | None, **schemes: Any) -> Route:
-    """Build a route with security requirements and schemes."""
+def _route(
+    security: list[dict[str, Any]] | None,
+    functions: dict[str, Any] | None = None,
+    **schemes: Any,
+) -> Route:
+    """Build a route with security requirements and schemes.
+
+    Args:
+        security: Security requirements.
+        functions: Functions resolved for schemes, by name (`None` for
+            unresolved ones); by default, `validate_token()` for all schemes
+            naming a function.
+        schemes: Security schemes, by name.
+
+    Returns:
+        The route.
+    """
+    functions = functions or {}
     return Route(
         method="GET",
         path="/",
@@ -452,6 +576,12 @@ def _route(security: list[dict[str, Any]] | None, **schemes: Any) -> Route:
         extensions={},
         function=controller,
         security_schemes=schemes,
+        bearer_info_functions={
+            name: function
+            for name, scheme in schemes.items()
+            if "x-bearerInfoFunc" in scheme
+            and (function := functions.get(name, auth.validate_token)) is not None
+        },
     )
 
 
@@ -470,6 +600,12 @@ FOCA = {
             _route([{"a": []}, {"b": []}], a=FOCA, b=FOCA), True, id="alternatives"
         ),
         pytest.param(_route([{"a": [], "b": []}], a=FOCA, b=FOCA), True, id="and"),
+        pytest.param(
+            _route([{"a": []}, {"b": []}], {"b": controller}, a=FOCA, b=FOCA),
+            False,
+            id="resolved-differently",
+        ),
+        pytest.param(_route([{"a": []}], {"a": None}, a=FOCA), False, id="unresolved"),
         pytest.param(_route(None), False, id="none"),
         pytest.param(_route([]), False, id="public"),
         pytest.param(_route([{"a": []}, {}], a=FOCA), False, id="optional"),

@@ -76,7 +76,12 @@ before:
 Their bodies are limited by the [body
 size](configuration/server.md#request-body-size) only. `OPTIONS` requests
 that Flask answers by itself (e.g., CORS preflight requests) aren't checked,
-as they don't reach the operation.
+as they don't reach the operation, and neither are routes that aren't
+operations (e.g., the served specification, the Swagger UI, or routes the
+app adds), also if an operation's path template matches them. Tokens are
+validated with the function that Connexion resolved for the scheme when the
+API was added, so replacing `validate_token` while adding it (e.g., in tests)
+applies to this check, too.
 
 ## Optional tokens
 
