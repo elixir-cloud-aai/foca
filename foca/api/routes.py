@@ -53,6 +53,9 @@ class Route:
             use `inspect.unwrap()` for the controller.
         base_path: Base path of the API that the operation belongs to,
             without trailing slash; empty for an API at the root.
+        security_schemes: Security schemes of the API specification, by
+            name, as named in `security` (`components.securitySchemes` of
+            OpenAPI 3, `securityDefinitions` of Swagger 2).
     """
 
     method: str
@@ -63,6 +66,9 @@ class Route:
     extensions: Mapping[str, Any]
     function: Callable[..., Any]
     base_path: str = ""
+    security_schemes: Mapping[str, Any] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
 
 
 class RouteMatch(NamedTuple):
@@ -182,6 +188,9 @@ def _install_route_table(cnx_app: Any) -> None:
                     rule=f"{prefix}/{rule.lstrip('/')}",
                     operation_id=operation_id,
                     security=operation.security,
+                    security_schemes=MappingProxyType(
+                        dict(operation.security_schemes or {})
+                    ),
                     extensions=MappingProxyType(
                         {
                             key: value

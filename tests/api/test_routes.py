@@ -183,7 +183,11 @@ class TestGetRoutes:
         }
         app = create_connexion_app()
         app.add_api(spec)
-        assert get_routes(app.app)[0].security == [{"key": []}]
+        route = get_routes(app.app)[0]
+        assert route.security == [{"key": []}]
+        assert route.security_schemes == spec["components"]["securitySchemes"]
+        with pytest.raises(TypeError):
+            route.security_schemes["other"] = {}  # type: ignore[index]
 
     @pytest.mark.parametrize("base_path", ["/", "/api/v1", "/api/v1/"])
     def test_same_as_flask(self, base_path: str) -> None:
