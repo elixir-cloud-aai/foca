@@ -225,7 +225,7 @@ namespaced by issuer, as `<namespace>|<subject>`: by default, the namespace
 is the issuer (e.g., `https://login.example.org/oidc/|alice`, in rules
 `user:https://login.example.org/oidc/|alice`). This applies with a single
 trusted issuer, too, so that trusting another issuer later changes no stored
-subject (since FOCA 0.23.0; see [Migrating to
+subject (up to FOCA 0.22, they were bare; see [Migrating to
 0.23.0](migration-0.23.md#subjects-are-always-namespaced-by-issuer)). Set the
 `namespace` of an issuer to choose a shorter one (e.g., `ls`, for
 `ls|alice`), or set it to `""` to keep the subjects of that issuer bare, so
@@ -264,7 +264,7 @@ claims of the token are not namespaced either.
 !!! tip "Trusting another issuer"
     As subjects are namespaced with a single trusted issuer, too, trusting
     another one changes no stored subject. An issuer that keeps its subjects
-    bare (`namespace: ""`, e.g., as the app stored them before FOCA 0.23.0)
+    bare (`namespace: ""`, e.g., as the app stored them up to FOCA 0.22)
     may keep doing so next to issuers whose subjects are namespaced. Users of
     that issuer whose subjects contain `|` are then no longer identified;
     check for such subjects first:

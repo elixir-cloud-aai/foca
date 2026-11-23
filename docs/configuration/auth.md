@@ -87,7 +87,7 @@ security:
       - my-app
     issuers:
       - issuer: https://login.example.org/oidc/
-        namespace: ""  # subjects stored bare before FOCA 0.23.0
+        namespace: ""  # subjects stored bare up to FOCA 0.22
       - issuer: https://login.example.com/oidc/
         namespace: example-com
         audience:

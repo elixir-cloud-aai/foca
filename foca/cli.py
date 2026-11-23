@@ -297,7 +297,7 @@ def _create_parser() -> argparse.ArgumentParser:
             "namespace-subjects",
             _namespace_subjects,
             "Namespace the bare users of the stored policy rules with the "
-            "namespace of a trusted issuer, e.g., those stored before FOCA 0.23.0.",
+            "namespace of a trusted issuer, e.g., those stored up to FOCA 0.22.",
         ),
     ):
         command = commands.add_parser(name, help=description, description=description)
