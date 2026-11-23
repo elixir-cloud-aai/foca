@@ -256,7 +256,12 @@
                 },
                 "issuer": {
                   "type": "string",
-                  "description": "cert-manager ClusterIssuer"
+                  "description": "cert-manager issuer of kind issuerKind"
+                },
+                "issuerKind": {
+                  "type": ["string", "null"],
+                  "enum": ["ClusterIssuer", "Issuer", null],
+                  "description": "Kind of the issuer: ClusterIssuer (default, also if null; annotation cert-manager.io/cluster-issuer) or Issuer in the release's namespace (cert-manager.io/issuer)"
                 }
               }
             }

@@ -490,6 +490,67 @@ releases also offer the Gateway API (see [Gateway API](#gateway-api)).
 - **NetworkPolicy peers:** the router's namespaces (see [NetworkPolicy
   peers](#networkpolicy-peers)).
 
+To serve a certificate of your own host name (e.g., from Let's Encrypt)
+instead of the router's wildcard certificate, use the chart's Ingress, which
+OpenShift turns into a Route. Where projects can't create cluster-scoped
+resources (and thus no ClusterIssuer), request the certificate from a
+namespaced cert-manager `Issuer` in the release's namespace, which
+`<valuesKey>.ingress.https.issuerKind: Issuer` selects (annotation
+`cert-manager.io/issuer` instead of `cert-manager.io/cluster-issuer`):
+
+```yaml
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: letsencrypt-prod
+  namespace: my-project
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: admin@example.org
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    solvers:
+    - http01:
+        ingress:
+          ingressClassName: openshift-default
+```
+
+```yaml
+myApp:
+  ingress:
+    enabled: true
+    className: openshift-default
+    annotations:
+      route.openshift.io/termination: edge
+    https:
+      enabled: true
+      issuer: letsencrypt-prod
+      issuerKind: Issuer
+```
+
+The class `openshift-default` and the annotation
+`route.openshift.io/termination` are OpenShift's; the solver's
+`ingressClassName` must be the Ingress's `className`, or the HTTP-01
+challenge is not answered. cert-manager stores the certificate in the
+Secret that the Ingress names (`<app name>-ingress-secret`), and OpenShift
+copies it into the Route it creates for the Ingress, with edge
+termination, and renews it there with the Secret. The HTTP-01 challenge is
+answered by an Ingress of the solver in the same class, which OpenShift
+serves over plain HTTP; check the generated Route (`oc get route -o yaml`),
+e.g., that it redirects HTTP to HTTPS (`insecureEdgeTerminationPolicy`).
+The router's annotations (e.g., for rate limits) then go into
+`<valuesKey>.ingress.annotations`, which OpenShift copies to the generated
+Route, as `<valuesKey>.route.annotations` apply only to the chart's own
+Route.
+
+The chart's Ingress serves `hostName` only: for a second host name
+(e.g., an old one), create a second Ingress outside the chart for that
+host, with the same class and annotations, to the app's Service (named
+like the app, port `http`), and a `tls` section with a Secret of its own,
+so that cert-manager issues and renews its certificate, too (a Route made
+by hand embeds its certificate, which nothing renews).
+
 ### Cloud load balancers
 
 Managed Kubernetes services connect Gateways or Ingresses to their load
@@ -792,7 +853,9 @@ broker's NetworkPolicy admits Flower through `<app>-broker-from-flower`.
   setup). An HTTPRoute is served with the TLS certificates of the Gateway's
   listeners. The Ingress serves plain HTTP unless
   `<valuesKey>.ingress.https.enabled` requests a certificate from
-  cert-manager (via the ClusterIssuer `<valuesKey>.ingress.https.issuer`);
+  cert-manager (via the issuer `<valuesKey>.ingress.https.issuer`, a
+  ClusterIssuer, or a namespaced Issuer with
+  `<valuesKey>.ingress.https.issuerKind: Issuer`);
   otherwise, terminate TLS in front of the cluster (e.g., at a load
   balancer), or set a TLS certificate of the ingress controller and redirect
   HTTP to HTTPS via `<valuesKey>.ingress.annotations`. OpenShift Routes use
