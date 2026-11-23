@@ -1382,6 +1382,57 @@ def test_ingress_https_issuer_kind(
     ]
 
 
+def test_ingress_https_issuer_kind_default(render: Callable[..., Docs]) -> None:
+    """Without `issuerKind`, as in earlier app charts, a ClusterIssuer is used."""
+    ingress = render(
+        "--set",
+        "petstore.ingress.https.enabled=true",
+        "--set",
+        "petstore.ingress.https.issuerKind=null",
+    )[("Ingress", APP)]
+    assert ingress["metadata"]["annotations"] == {
+        "cert-manager.io/cluster-issuer": "letsencrypt-prod",
+        "kubernetes.io/tls-acme": "true",
+    }
+
+
+def test_ingress_https_issuer_kind_null(chart: Path, tmp_path: Path) -> None:
+    """`null` means a ClusterIssuer, also if the app chart has no default."""
+    chart_copy = tmp_path / "chart"
+    shutil.copytree(chart, chart_copy)
+    (chart_copy / "values.schema.json").unlink()
+    values = chart_copy / "values.yaml"
+    text = values.read_text()
+    assert "      issuerKind: ClusterIssuer\n" in text
+    values.write_text(text.replace("      issuerKind: ClusterIssuer\n", ""))
+    overrides = tmp_path / "null.yaml"
+    overrides.write_text(
+        yaml.safe_dump(
+            {"petstore": {"ingress": {"https": {"enabled": True, "issuerKind": None}}}}
+        )
+    )
+    ingress = index(template(chart_copy, "-f", str(overrides)))[("Ingress", APP)]
+    assert ingress["metadata"]["annotations"] == {
+        "cert-manager.io/cluster-issuer": "letsencrypt-prod",
+        "kubernetes.io/tls-acme": "true",
+    }
+
+
+def test_ingress_https_both_issuer_annotations(
+    render_error: Callable[..., str],
+) -> None:
+    """An Ingress can't name both a ClusterIssuer and an Issuer."""
+    error = render_error(
+        "--set",
+        "petstore.ingress.https.enabled=true",
+        "--set",
+        "petstore.ingress.https.issuerKind=Issuer",
+        "--set",
+        "petstore.ingress.annotations.cert-manager\\.io/cluster-issuer=other",
+    )
+    assert "must not have both annotations cert-manager.io/issuer" in error
+
+
 def test_ingress_https_issuer_kind_schema(render_error: Callable[..., str]) -> None:
     """The schema accepts only the two kinds of cert-manager issuers."""
     error = render_error(
@@ -1399,7 +1450,8 @@ def test_ingress_https_issuer_kind_invalid(
     chart: Path, kind: str, tmp_path: Path
 ) -> None:
     """Other kinds fail to render, also without the schema."""
-    # Bypasses the schema, which rejects these values already
+    # Bypasses the schema, which rejects these values already: app charts
+    # need not copy the library's schema (or may have an older copy)
     chart_copy = tmp_path / "chart"
     shutil.copytree(chart, chart_copy)
     (chart_copy / "values.schema.json").unlink()

@@ -5,7 +5,8 @@ body sizes or rate limits), which `ingress.annotations` add. These take
 precedence over the annotations requesting a certificate from cert-manager
 (`ingress.https`: the `issuer` of kind `issuerKind`, a ClusterIssuer by
 default or a namespaced Issuer); `null` removes them. Fails if
-`ingress.https.issuerKind` is set to another kind, and if ingress-nginx's
+`ingress.https.issuerKind` is set to another kind (`null` means the
+default), if the annotations name both a ClusterIssuer and an Issuer, and if ingress-nginx's
 size limit of request bodies is below the app's (see
 `foca-common.checkProxyBodySize`). Call with the context dict.
 */}}
@@ -19,7 +20,7 @@ size limit of request bodies is below the app's (see
 {{- $https := $ingress.https | default dict -}}
 {{- $annotations := dict -}}
 {{- $issuerKind := "ClusterIssuer" -}}
-{{- if hasKey $https "issuerKind" -}}
+{{- if not (kindIs "invalid" $https.issuerKind) -}}
 {{- $issuerKind = $https.issuerKind -}}
 {{- if not (has $issuerKind (list "ClusterIssuer" "Issuer")) -}}
 {{- fail (printf "%s.ingress.https.issuerKind must be ClusterIssuer or Issuer, not %q" $key (toString $issuerKind)) -}}
@@ -36,6 +37,9 @@ size limit of request bodies is below the app's (see
 {{- else -}}
 {{- $_ := set $annotations $name $value -}}
 {{- end -}}
+{{- end -}}
+{{- if and (hasKey $annotations "cert-manager.io/issuer") (hasKey $annotations "cert-manager.io/cluster-issuer") -}}
+{{- fail (printf "%s.ingress: the Ingress must not have both annotations cert-manager.io/issuer and cert-manager.io/cluster-issuer, which cert-manager refuses: set %s.ingress.https.issuerKind instead, or remove one with null in %s.ingress.annotations" $key $key $key) -}}
 {{- end -}}
 {{- include "foca-common.checkProxyBodySize" (dict "root" $root "settings" .settings "annotations" $annotations) }}
 apiVersion: networking.k8s.io/v1

@@ -529,15 +529,25 @@ myApp:
       issuerKind: Issuer
 ```
 
-cert-manager stores the certificate in the Secret that the Ingress names
-(`<app name>-ingress-secret`), and OpenShift copies it into the Route it
-creates for the Ingress, with edge termination. The HTTP-01 challenge is
+The class `openshift-default` and the annotation
+`route.openshift.io/termination` are OpenShift's; the solver's
+`ingressClassName` must be the Ingress's `className`, or the HTTP-01
+challenge is not answered. cert-manager stores the certificate in the
+Secret that the Ingress names (`<app name>-ingress-secret`), and OpenShift
+copies it into the Route it creates for the Ingress, with edge
+termination, and renews it there with the Secret. The HTTP-01 challenge is
 answered by an Ingress of the solver in the same class, which OpenShift
 serves over plain HTTP; check the generated Route (`oc get route -o yaml`),
 e.g., that it redirects HTTP to HTTPS (`insecureEdgeTerminationPolicy`).
-The chart's Ingress serves `hostName` only: for a second host name (e.g., an
-old one), create a Route outside the chart for that host, to the app's
-Service (named like the app, port `http`), with its own certificate.
+The router's annotations (e.g., for rate limits) then go into
+`<valuesKey>.ingress.annotations`, which OpenShift copies to the generated
+Route, as `<valuesKey>.route.annotations` apply only to the chart's own
+Route. The chart's Ingress serves `hostName` only: for a second host name
+(e.g., an old one), create a second Ingress outside the chart for that
+host, with the same class and annotations, to the app's Service (named
+like the app, port `http`), and a `tls` section with a Secret of its own,
+so that cert-manager issues and renews its certificate, too (a Route made
+by hand embeds its certificate, which nothing renews).
 
 ### Cloud load balancers
 
