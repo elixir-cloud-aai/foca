@@ -542,7 +542,9 @@ e.g., that it redirects HTTP to HTTPS (`insecureEdgeTerminationPolicy`).
 The router's annotations (e.g., for rate limits) then go into
 `<valuesKey>.ingress.annotations`, which OpenShift copies to the generated
 Route, as `<valuesKey>.route.annotations` apply only to the chart's own
-Route. The chart's Ingress serves `hostName` only: for a second host name
+Route.
+
+The chart's Ingress serves `hostName` only: for a second host name
 (e.g., an old one), create a second Ingress outside the chart for that
 host, with the same class and annotations, to the app's Service (named
 like the app, port `http`), and a `tls` section with a Secret of its own,

@@ -1383,7 +1383,7 @@ def test_ingress_https_issuer_kind(
 
 
 def test_ingress_https_issuer_kind_default(render: Callable[..., Docs]) -> None:
-    """Without `issuerKind`, as in earlier app charts, a ClusterIssuer is used."""
+    """`null` removes the app chart's default kind; a ClusterIssuer is used."""
     ingress = render(
         "--set",
         "petstore.ingress.https.enabled=true",
@@ -1396,11 +1396,15 @@ def test_ingress_https_issuer_kind_default(render: Callable[..., Docs]) -> None:
     }
 
 
-def test_ingress_https_issuer_kind_null(chart: Path, tmp_path: Path) -> None:
+@pytest.mark.parametrize("schema", [True, False])
+def test_ingress_https_issuer_kind_null(
+    chart: Path, tmp_path: Path, schema: bool
+) -> None:
     """`null` means a ClusterIssuer, also if the app chart has no default."""
     chart_copy = tmp_path / "chart"
     shutil.copytree(chart, chart_copy)
-    (chart_copy / "values.schema.json").unlink()
+    if not schema:
+        (chart_copy / "values.schema.json").unlink()
     values = chart_copy / "values.yaml"
     text = values.read_text()
     assert "      issuerKind: ClusterIssuer\n" in text

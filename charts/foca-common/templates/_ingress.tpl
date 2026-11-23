@@ -6,8 +6,8 @@ precedence over the annotations requesting a certificate from cert-manager
 (`ingress.https`: the `issuer` of kind `issuerKind`, a ClusterIssuer by
 default or a namespaced Issuer); `null` removes them. Fails if
 `ingress.https.issuerKind` is set to another kind (`null` means the
-default), if the annotations name both a ClusterIssuer and an Issuer, and if ingress-nginx's
-size limit of request bodies is below the app's (see
+default), if the annotations name both a ClusterIssuer and an Issuer, and
+if ingress-nginx's size limit of request bodies is below the app's (see
 `foca-common.checkProxyBodySize`). Call with the context dict.
 */}}
 {{- define "foca-common.ingress" -}}
