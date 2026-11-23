@@ -399,9 +399,11 @@ credentials = get_credentials(
     token_provider,
     auth=outbound.auth,  # None: the backend's own
 )
+# backends of the gateway's configuration
 with BackendSession() as session:
     session.get(url, auth=credentials, allow_redirects=False, timeout=15)
-# other clients (e.g., GuardedClient): apply them to the request's headers,
+# backends discovered in registries, and other clients (e.g., GuardedClient,
+# see below): apply them to the request's headers,
 # which also removes an `Authorization` header there for `auth: none`
 credentials.apply(headers)
 ```
@@ -438,6 +440,18 @@ otherwise share. Clients other than `requests` call
 `credentials.headers`, which is empty for `auth: none`). Their representation, and the messages of `CredentialsError` (no
 token, variable not set, unknown credentials), leave out tokens and
 secrets.
+
+`BackendSession` doesn't check the addresses that it connects to, and
+follows redirects unless a request passes `allow_redirects=False`. Use it
+for the identity provider and for backends of the gateway's configuration.
+For backends discovered in registries, which are checked for public
+addresses only when the registry is read, send requests with a
+`GuardedClient` (see [Sending requests to untrusted
+URLs](utilities.md#sending-requests-to-untrusted-urls)) and
+`credentials.apply(headers)`: it checks the address of each connection and
+follows no redirects, so that a backend whose name later resolves to a
+private address (e.g., the cloud's metadata service) doesn't get the
+gateway's token there.
 
 On startup, gateways call `check_backends(backends, client, token_provider,
 api="tes", public_url=..., key="custom.tes.backends")`. It refuses to start
