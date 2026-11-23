@@ -1353,6 +1353,75 @@ def test_ingress_https(render: Callable[..., Docs]) -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    ("kind", "annotation"),
+    [
+        ("ClusterIssuer", "cert-manager.io/cluster-issuer"),
+        ("Issuer", "cert-manager.io/issuer"),
+    ],
+)
+def test_ingress_https_issuer_kind(
+    render: Callable[..., Docs], kind: str, annotation: str
+) -> None:
+    """`issuerKind` picks the annotation of a ClusterIssuer or an Issuer."""
+    ingress = render(
+        "--set",
+        "petstore.ingress.https.enabled=true",
+        "--set",
+        f"petstore.ingress.https.issuerKind={kind}",
+    )[("Ingress", APP)]
+    assert ingress["metadata"]["annotations"] == {
+        annotation: "letsencrypt-prod",
+        "kubernetes.io/tls-acme": "true",
+    }
+    assert ingress["spec"]["tls"] == [
+        {
+            "hosts": ["petstore.example.org"],
+            "secretName": "petstore-ingress-secret",
+        }
+    ]
+
+
+def test_ingress_https_issuer_kind_schema(render_error: Callable[..., str]) -> None:
+    """The schema accepts only the two kinds of cert-manager issuers."""
+    error = render_error(
+        "--set",
+        "petstore.ingress.https.enabled=true",
+        "--set",
+        "petstore.ingress.https.issuerKind=Issuers",
+    )
+    assert "schema" in error
+    assert "issuerKind" in error
+
+
+@pytest.mark.parametrize("kind", ["Issuers", "issuer", ""])
+def test_ingress_https_issuer_kind_invalid(
+    chart: Path, kind: str, tmp_path: Path
+) -> None:
+    """Other kinds fail to render, also without the schema."""
+    # Bypasses the schema, which rejects these values already
+    chart_copy = tmp_path / "chart"
+    shutil.copytree(chart, chart_copy)
+    (chart_copy / "values.schema.json").unlink()
+    error = template_error(
+        chart_copy,
+        "--set",
+        "petstore.ingress.https.enabled=true",
+        "--set-string",
+        f"petstore.ingress.https.issuerKind={kind}",
+    )
+    assert "petstore.ingress.https.issuerKind must be ClusterIssuer or Issuer" in error
+
+
+def test_ingress_https_issuer_kind_unused(render: Callable[..., Docs]) -> None:
+    """Without HTTPS, `issuerKind` sets no annotation."""
+    ingress = render("--set", "petstore.ingress.https.issuerKind=Issuer")[
+        ("Ingress", APP)
+    ]
+    assert "annotations" not in ingress["metadata"]
+    assert "tls" not in ingress["spec"]
+
+
 def test_ingress_annotations(render: Callable[..., Docs]) -> None:
     """Ingress annotations merge with the defaults."""
     annotations = {"a": "b", "kubernetes.io/tls-acme": None}

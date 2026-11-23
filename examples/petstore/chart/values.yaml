@@ -116,10 +116,16 @@ petstore:
     # removes one of these
     annotations: {}
     https:
-      # Request a certificate from cert-manager (via `issuer`, a
-      # ClusterIssuer) and serve HTTPS
+      # Request a certificate from cert-manager (via `issuer`, of the kind
+      # `issuerKind`) and serve HTTPS
       enabled: false
       issuer: letsencrypt-prod
+      # Kind of `issuer`: `ClusterIssuer` (annotation
+      # `cert-manager.io/cluster-issuer`) or `Issuer`, a namespaced issuer in
+      # the release's namespace (`cert-manager.io/issuer`), e.g., on clusters
+      # where projects can't create cluster-scoped resources (see the chart
+      # docs for OpenShift)
+      issuerKind: ClusterIssuer
   # Gateway API HTTPRoute (`gateway.networking.k8s.io/v1`) for `hostName`,
   # attached to an existing Gateway, whose listener terminates TLS; requires
   # `ingress.enabled: false`
