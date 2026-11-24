@@ -24,6 +24,7 @@ from foca.security.access_control.access_control_server import (
     postPermission,
     putPermission,
 )
+from foca.security.access_control.constants import DEFAULT_MODEL_FILE
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.testing import Client, request_context
 from foca.utils import logging as logging_module
@@ -37,6 +38,7 @@ from tests.mock_data import (
     MOCK_RULE_USER_INPUT_OUTPUT,
     MONGO_CONFIG,
 )
+from tests.security.access_control.callers import ISSUER, model_path
 
 
 def _passing_body(controller: Callable[..., Any]) -> Callable[..., Any]:
@@ -755,3 +757,87 @@ class TestInvalidFields:
         assert [(e.pointer, e.parameter, e.code) for e in exc.value.field_errors] == [
             (None, parameter, code)
         ]
+
+
+class TestUsersWithoutNamespace:
+    """Tests for rules naming users without the namespace of a trusted issuer."""
+
+    @pytest.fixture
+    def namespaced_app(self, app: Flask) -> Flask:
+        """App with FOCA's default model and an issuer namespacing subjects.
+
+        Args:
+            app: App with a custom model.
+
+        Returns:
+            The app, with the default model and `ISSUER` trusted.
+        """
+        conf = _get_app_config(app).security
+        conf.auth.issuers = [ISSUER]
+        conf.access_control.model = model_path(DEFAULT_MODEL_FILE)
+        app.config["CASBIN_MODEL"] = conf.access_control.model
+        return app
+
+    @pytest.mark.parametrize(
+        "payload,pointer",
+        [
+            (
+                {"policy_type": "g", "rule": {"v0": "user:s3cr3t", "v1": "admin"}},
+                "#/rule/v0",
+            ),
+            (
+                {
+                    "policy_type": "p",
+                    "rule": {"v0": "user:s3cr3t", "v1": "/tasks", "v2": "GET"},
+                },
+                "#/rule/v0",
+            ),
+            (
+                {
+                    "policy_type": "g",
+                    "rule": {"v0": "admin", "v1": "user:other|s3cr3t"},
+                },
+                "#/rule/v1",
+            ),
+        ],
+    )
+    def test_refused(
+        self, namespaced_app: Flask, payload: dict[str, Any], pointer: str
+    ) -> None:
+        """Such users apply to nobody, so new and updated rules are refused."""
+        for controller, kwargs in (
+            (postPermission, {}),
+            (putPermission, {"id": MOCK_ID}),
+        ):
+            with (
+                request_context(app=namespaced_app),
+                pytest.raises(InvalidFieldsProblem) as exc,
+            ):
+                unwrap(controller)(body=deepcopy(payload), **kwargs)
+            TestInvalidFields._assert_field(exc.value, pointer, "unknown-user")
+
+    def test_namespaced(self, namespaced_app: Flask) -> None:
+        """Users with the namespace of a trusted issuer are accepted."""
+        body = {
+            "policy_type": "g",
+            "rule": {"v0": f"user:{ISSUER}|alice", "v1": "admin"},
+        }
+        with request_context(app=namespaced_app):
+            assert unwrap(postPermission)(body=body)
+
+    def test_custom_model(self, app: Flask) -> None:
+        """With custom models, which may match users in other ways, they are."""
+        _get_app_config(app).security.auth.issuers = [ISSUER]
+        with request_context(app=app):
+            assert unwrap(postPermission)(body=deepcopy(MOCK_PERMISSION))
+
+    def test_delete(
+        self, namespaced_app: Flask, collection: Collection[dict[str, Any]]
+    ) -> None:
+        """Stored rules naming such users can be deleted, to clean them up."""
+        collection.insert_one(
+            {"ptype": "g", "v0": "user:bob", "v1": "admin", "id": MOCK_ID}
+        )
+        with namespaced_app.app_context():
+            assert unwrap(deletePermission)(id=MOCK_ID) == MOCK_ID
+        assert collection.count_documents({}) == 0

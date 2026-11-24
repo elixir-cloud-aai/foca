@@ -52,11 +52,8 @@ from foca.security.access_control.constants import (
     CHANGES_COLLECTION_SUFFIX,
     CONFIGURED_POLICIES_CHECK_TIMEOUT,
     DEFAULT_API_SPEC_PATH,
-    DEFAULT_MODEL_FILE,
-    GRANTED_RIGHTS_MODEL_FILE,
     GROUP_PREFIX,
     ME_API_SPEC_PATH,
-    RESOURCE_ROLE_MODEL_FILE,
 )
 from foca.security.access_control.enforcement import AccessControlResolver
 from foca.security.access_control.foca_casbin_adapter.adapter import (
@@ -68,6 +65,7 @@ from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
 )
 from foca.security.access_control.me import import_me_hook
 from foca.security.access_control.ownership_server import _check_routes_enforced
+from foca.security.access_control.users import _is_packaged_model
 from foca.security.auth import InvalidTokenResolver
 from foca.utils.logging import escape_log_value
 from foca.utils.urls import _get_api_base_paths, _get_apis, _register_api
@@ -275,54 +273,6 @@ def _check_policy_users(
         )
         return
     raise ValueError(f"{message}, so they would apply to nobody. To fix this, {fix}")
-
-
-def _is_packaged_model(model: str | None) -> bool:
-    """Check whether a model is one that FOCA ships, or a copy of one.
-
-    Copies count, too (e.g., of apps that copied a model before
-    `foca:<file>` existed), as they match subjects in the same way. Files
-    are compared ignoring whitespace and comments (cf.
-    :py:func:`_model_tokens`).
-
-    Args:
-        model: Path of the model (`access_control.model`, resolved); `None`
-            for the default model.
-
-    Returns:
-        Whether `model` is the default model, or a file with the definitions
-        of a model that FOCA ships.
-    """
-    if model is None:
-        return True
-    path = Path(model)
-    if not path.is_file():
-        return False
-    content = _model_tokens(path.read_text(encoding="utf-8"))
-    packaged = files(ACCESS_CONTROL_BASE_PATH)
-    return any(
-        content == _model_tokens(packaged.joinpath(name).read_text(encoding="utf-8"))
-        for name in (
-            DEFAULT_MODEL_FILE,
-            RESOURCE_ROLE_MODEL_FILE,
-            GRANTED_RIGHTS_MODEL_FILE,
-        )
-    )
-
-
-def _model_tokens(text: str) -> list[str]:
-    """Get the tokens of a Casbin model, without whitespace and comments.
-
-    Args:
-        text: Text of the model; comments start with `#` and run to the end
-            of the line.
-
-    Returns:
-        Tokens of the definitions, split at whitespace.
-    """
-    return [
-        token for line in text.splitlines() for token in line.split("#", 1)[0].split()
-    ]
 
 
 def _check_group_config(

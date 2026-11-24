@@ -126,6 +126,7 @@ response names one, with these codes:
 | `invalid-character` | `#/rule/vN`, parameter `id` | A value has a comma or line break, or starts with `#`; or `id` has characters other than those of `access_control.id_charset`. |
 | `invalid-pattern` | `#/rule/vN` | The action of a policy rule is not a valid regular expression. |
 | `opt-in-role` | `#/rule/v1` | A role rule grants an opt-in role. |
+| `unknown-user` | `#/rule/vN` | A value names a user that no trusted issuer has, e.g., `user:alice` without the namespace of an issuer that namespaces its subjects (with the models that FOCA ships; see [Subjects are always namespaced by issuer](../migration-0.23.md#subjects-are-always-namespaced-by-issuer)). |
 | `invalid-length` | parameter `id` | `id` doesn't have the length `access_control.id_length`. |
 | `too-small`, `too-large` | parameters `page_size`, `page` | `page_size` is out of range, or `page` is negative or beyond the last page. |
 

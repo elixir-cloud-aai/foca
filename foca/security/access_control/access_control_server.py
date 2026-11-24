@@ -34,6 +34,7 @@ from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     InvalidRuleError,
     validate_rule,
 )
+from foca.security.access_control.users import unknown_user_matcher
 from foca.utils.logging import escape_log_value, log_traffic_if
 
 logger = logging.getLogger(__name__)
@@ -233,9 +234,10 @@ def _get_rule(body: Any) -> tuple[str, list[str]]:
             for the app's access control model (cf.
             :py:func:`validate_rule`), e.g., because the policy type is not
             defined in the model, the rule has keys other than `v0` to `v5`
-            or values are missing, or it is a role rule that grants an
-            opt-in role (cf. :py:func:`grants_opt_in_role`); names the
-            invalid field, with a code, but not its value.
+            or values are missing, it is a role rule that grants an
+            opt-in role (cf. :py:func:`grants_opt_in_role`), or it names a
+            user that no trusted issuer has (cf. :py:func:`_check_users`);
+            names the invalid field, with a code, but not its value.
     """
     if not isinstance(body, dict):
         logger.error("Invalid request payload.")
@@ -274,6 +276,7 @@ def _get_rule(body: Any) -> tuple[str, list[str]]:
                 ),
                 field=1,
             )
+        _check_users(values)
     except InvalidRuleError as exc:
         # Messages quote the client's values, so they are logged at DEBUG
         # only, and not chained into the traceback that may be logged; the
@@ -285,6 +288,39 @@ def _get_rule(body: Any) -> tuple[str, list[str]]:
             reason, exc.code, pointer=_rule_field_pointer(exc.field)
         ) from None
     return str(ptype), values
+
+
+def _check_users(values: list[str]) -> None:
+    """Check that the values of a rule name only users that issuers have.
+
+    Under the models that FOCA ships, rules naming other users (e.g.,
+    without the namespace of an issuer that namespaces its subjects) apply to
+    nobody, as for configured rules, which FOCA refuses to start with (cf.
+    :py:func:`foca.security.access_control.users.unknown_user_matcher`).
+
+    Args:
+        values: Values of the rule.
+
+    Raises:
+        InvalidRuleError: A value names such a user (code `unknown-user`).
+    """
+    conf = get_config().security
+    unknown = unknown_user_matcher(conf.access_control, conf.auth)
+    if unknown is None:
+        return
+    prefix = conf.access_control.subject_prefix
+    for index, value in enumerate(values):
+        if unknown.match(value):
+            raise InvalidRuleError(
+                f"Rule value '{value}' names a user that no trusted issuer has",
+                code="unknown-user",
+                reason=(
+                    "Names a user that no trusted issuer has: name users as "
+                    f"'{prefix}<namespace>|<subject>', where the namespace is "
+                    "the issuer unless set in 'security.auth.issuers[].namespace'."
+                ),
+                field=index,
+            )
 
 
 def _check_not_configured(id: str) -> None:
