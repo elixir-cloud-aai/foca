@@ -69,7 +69,9 @@ Choose one of these before you upgrade:
    later (whose subjects are then namespaced). Nothing else changes, and no
    data needs to be moved. This is an explicit opt-out for one issuer, for
    existing deployments; it will be reconsidered for FOCA 1.0, so new
-   deployments shouldn't use it:
+   deployments shouldn't use it. Subjects that contain `|` (e.g., `auth0|123`)
+   stay bare only while no other trusted issuer namespaces its subjects: once
+   one does, they are refused, so for such issuers, choose option 2:
 
     ```yaml
     security:
@@ -258,8 +260,9 @@ are now refused with `400`, naming the field (`pattern-mismatch`).
 (`type: ga4gh-wes`, API `wes` in `foca.plugins.backends.API_TYPES`), and
 `ServiceEntry` has an optional `api_path` (by default the API's path, e.g.,
 `/ga4gh/wes/v1`). `BackendList(entries, api=...)` now refuses backend
-entries of another API's type. Nothing needs to change, but WES gateways
-can drop their own registration of the WES API type, subclasses of
+entries of another API's type, e.g., entries of a WES type that an app
+registered itself in a TES gateway's list; such lists now fail when they are
+created. Nothing else needs to change, but WES gateways can drop their own registration of the WES API type, subclasses of
 `ServiceEntry` that only change its `type` or add `api_path`, and
 subclasses of `BackendList` that bypass its validation, and pass
 `api="wes"` instead.
@@ -277,13 +280,16 @@ credentials of each request, and `check_backends()` for the startup checks.
 token per backend (`audience_parameter`); it needs `auth:
 client_credentials`.
 
-Nothing needs to change. Gateways with token clients of their own (e.g.,
+Nothing needs to change, except for subclasses of `ServiceEntry` that add
+`audience` (see below). Gateways with token clients of their own (e.g.,
 proTES's `TokenProvider` and `check_backends`) can switch to FOCA's: move
 the URL schemes of the identity provider into `client_credentials`
 (`client_credentials.url_schemes`), create a `TokenProvider` with the names
 of the variables of the client ID and secret, and catch `CredentialsError`
 where they caught their own error. Subclasses of `ServiceEntry` that add
-`audience` themselves keep working, but FOCA now checks it too.
+`audience` themselves keep working, but FOCA now checks it too: an
+`audience` without `auth: client_credentials`, or with surrounding
+whitespace, now fails the validation of the backend list.
 
 ## Choices of unknown backends are refused
 
