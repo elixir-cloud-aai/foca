@@ -381,8 +381,9 @@ class PageKey:
         descending: Whether to sort in descending order.
 
     Raises:
-        ValueError: There are no fields, a field name is empty, has empty
-            parts or starts with `$`, or fields are named twice.
+        ValueError: The fields are a string instead of a tuple, there are no
+            fields, a field name is empty, has empty parts or starts with
+            `$`, or fields are named twice.
 
     Examples:
         >>> key = PageKey(("name",))
@@ -396,7 +397,9 @@ class PageKey:
     def __post_init__(self) -> None:
         """Check the fields."""
         if (
-            not self.fields
+            # A string, e.g., `("name")`, would sort by its characters
+            isinstance(self.fields, str)
+            or not self.fields
             or len(set(self.fields)) != len(self.fields)
             or not all(_FIELD.fullmatch(field) for field in self.fields)
         ):
@@ -452,7 +455,7 @@ class PageKey:
                 token.
         """
         try:
-            # Tokens may come from JSON bodies, as other types
+            # Tokens from JSON bodies may not be strings
             if not isinstance(token, str) or not _TOKEN.fullmatch(token):
                 raise ValueError("not a token")
             padding = "=" * (-len(token) % 4)

@@ -111,12 +111,18 @@ class TestPageKey:
     """Tests for `PageKey`."""
 
     @pytest.mark.parametrize(
-        "fields", [(), ("",), ("_id", "_id"), ("a..b",), (".a",), ("a.",), ("$a",)]
+        "fields",
+        [(), ("",), ("_id", "_id"), ("a..b",), (".a",), ("a.",), ("$a",), ("a.$b",)],
     )
     def test_invalid_fields(self, fields: tuple[str, ...]) -> None:
         """Keys need distinct, non-empty field names."""
         with pytest.raises(ValueError, match="fields"):
             PageKey(fields)
+
+    def test_string_of_fields(self) -> None:
+        """A string instead of a tuple of fields is refused, e.g., `("name")`."""
+        with pytest.raises(ValueError, match="fields"):
+            PageKey("name")  # type: ignore[arg-type]
 
     def test_sort(self) -> None:
         """Pages are sorted by all fields, in one direction."""
@@ -248,6 +254,7 @@ class TestPageKey:
             PageKey(("v",)).after(token, parameter="page_token")  # type: ignore[arg-type]
         (error,) = exc_info.value.field_errors
         assert (error.code, error.parameter) == ("invalid-format", "page_token")
+        assert str(token) not in error.detail
 
     @pytest.mark.parametrize(
         "data",
