@@ -242,12 +242,14 @@ def get_page_size(
             (`invalid-type`), is less than 1 (`too-small`) or more than
             `maximum` (`too-large`), naming the parameter, without quoting the
             value.
-        ValueError: `default` or `maximum` is less than 1, or more than the
-            largest integer of 8 bytes, or `default` is more than `maximum`.
+        ValueError: `default` or `maximum` is less than 1, or not less than
+            the largest integer of 8 bytes, or `default` is more than
+            `maximum`.
     """
-    if not 1 <= default <= maximum <= _MAX_VALUE:
+    # `find_page()` reads one more item, within the integers of 8 bytes
+    if not 1 <= default <= maximum < _MAX_VALUE:
         raise ValueError(
-            f"`default` and `maximum` must be from 1 to {_MAX_VALUE}, "
+            f"`default` and `maximum` must be from 1 to {_MAX_VALUE - 1}, "
             "and `default` at most `maximum`"
         )
     if value is None:
@@ -340,10 +342,14 @@ def _get_field(item: Mapping[str, Any], field: str) -> object:
         The value.
 
     Raises:
-        ValueError: The item has no such field.
+        ValueError: The item has no such field, or the path crosses an array
+            (MongoDB sorts by an element of the array, which has no single
+            value for the token).
     """
     value: object = item
     for name in field.split("."):
+        if isinstance(value, list):
+            raise ValueError(f"Sort field '{field}' must not cross an array")
         if not isinstance(value, Mapping) or name not in value:
             raise ValueError(f"Item has no sort field '{field}'")
         value = value[name]
@@ -448,7 +454,11 @@ class PageKey:
             if not _TOKEN.fullmatch(token):
                 raise ValueError("not a token")
             padding = "=" * (-len(token) % 4)
-            entries = json.loads(base64.urlsafe_b64decode(token + padding))
+            raw = base64.urlsafe_b64decode(token + padding)
+            # Unused bits of the last character must be 0, as `token()` sets
+            if base64.urlsafe_b64encode(raw).decode().rstrip("=") != token:
+                raise ValueError("not a canonical token")
+            entries = json.loads(raw)
             if not isinstance(entries, list) or len(entries) != len(self.fields):
                 raise ValueError("not a token of this key")
             values = [_decode_value(entry) for entry in entries]
@@ -519,8 +529,9 @@ def find_page(
         foca.errors.InvalidFieldsProblem: The token is malformed (cf.
             :py:meth:`PageKey.after`).
         ValueError: `size` is less than 1 or not less than the largest
-            integer of 8 bytes, or the last item of the page lacks a sort field (cf.
-            :py:meth:`PageKey.token`).
+            integer of 8 bytes, or the last item of a page that isn't the last
+            one has no valid token (cf. :py:meth:`PageKey.token`: missing or
+            unsupported sort values, or values too long for a token).
     """
     # One more item than the page is read, within the integers of 8 bytes
     if not 1 <= size < _MAX_VALUE:

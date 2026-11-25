@@ -89,8 +89,12 @@ controller.
 Many GA4GH APIs page lists with opaque page tokens instead (e.g., `pageSize`
 and `pageToken`, or `page_size` and `page_token`, and `next_page_token` in the
 response). Such pages continue after the last item of the previous page
-(keyset pagination), so no item is skipped or repeated when items are added
-or deleted between requests, and MongoDB reads no skipped items.
+(keyset pagination), so no item is skipped or repeated when other items are
+added or deleted between requests, and MongoDB reads no skipped items. Items
+added before that last item, in the sort order, belong to pages already read,
+so they don't come; items whose sort values change between requests may be
+missed or come twice, so sort by values that don't change, e.g., the time of
+creation.
 `foca.utils.pagination` has helpers for them:
 
 - `get_page_size()` checks the page size of a request against a default and
@@ -136,7 +140,10 @@ a unique field such as `_id`, and give every item a value for each of them
 that is an `ObjectId`, a `datetime`, an integer of 8 bytes or a string (not
 `None`); otherwise, `token()` raises a `ValueError`. Each field must have
 values of the same type in all items: MongoDB compares values of one type
-only, so pages would skip items of other types. If you pass a `projection`
+only, so pages would skip items of other types. Paths through arrays are
+refused, and the values of the last item of a page must fit into a token of
+4096 characters (about 3000 bytes of JSON), so don't sort by long strings.
+If you pass a `projection`
 to `find_page()`, include the sort fields. An index on the sort fields, in
 the same order, keeps pages fast.
 

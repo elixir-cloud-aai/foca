@@ -84,6 +84,7 @@ class TestGetPageSize:
             {"maximum": 0},
             {"default": 2**63},
             {"maximum": 2**63},
+            {"maximum": 2**63 - 1},
             {"default": 11, "maximum": 10},
         ],
     )
@@ -157,6 +158,16 @@ class TestPageKey:
         token = key.token({"t": _TIME.astimezone(timezone(timedelta(hours=-5)))})
         assert key.after(token, parameter="pageToken") == {"t": {"$gt": _TIME}}
 
+    def test_changed_unused_bits(self) -> None:
+        """Tokens with other unused bits in the last character are refused."""
+        key = PageKey(("v",))
+        token = key.token({"v": 12})
+        assert len(token) % 4
+        alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+        changed = token[:-1] + alphabet[alphabet.index(token[-1]) + 1]
+        with pytest.raises(InvalidFieldsProblem):
+            key.after(changed, parameter="pageToken")
+
     def test_token_is_opaque(self) -> None:
         """Tokens are URL-safe and don't show the values in plain text."""
         token = PageKey(("name",)).token({"name": "secret name"})
@@ -195,6 +206,11 @@ class TestPageKey:
         """Items need a value of a supported type for each field."""
         with pytest.raises(ValueError, match="'v'"):
             PageKey(("v",)).token(item)
+
+    def test_field_through_array(self) -> None:
+        """Paths through arrays have no single value, so they are refused."""
+        with pytest.raises(ValueError, match="array"):
+            PageKey(("runs.id",)).token({"runs": [{"id": "a"}, {"id": "b"}]})
 
     def test_missing_nested_field(self) -> None:
         """Items without a nested field are refused."""
@@ -324,8 +340,9 @@ class TestFindPage:
     def test_exactly_full_last_page(self, pets: Collection[dict[str, Any]]) -> None:
         """A full last page has no next token."""
         first = self._page(pets, None, size=5)
+        assert first.next_token is not None
         last = self._page(pets, first.next_token, size=5)
-        assert len(last.items) == 5
+        assert _names(last) == ["pet4", "pet3", "pet2", "pet1", "pet0"]
         assert last.next_token is None
 
     def test_empty_list(self) -> None:
@@ -336,10 +353,11 @@ class TestFindPage:
     def test_changes_between_pages(self, pets: Collection[dict[str, Any]]) -> None:
         """Items added or deleted between pages are not skipped or repeated."""
         first = self._page(pets, None)
-        pets.insert_one({"name": "new", "born": _TIME + timedelta(days=10)})
+        # With offsets, the next page would start at pet3, after pet4
+        pets.insert_one({"name": "old", "born": _TIME - timedelta(days=1)})
         pets.delete_many({"name": {"$in": ["pet6", "pet5"]}})
         rest = self._page(pets, first.next_token, size=10)
-        assert _names(rest) == ["pet4", "pet3", "pet2", "pet1", "pet0"]
+        assert _names(rest) == ["pet4", "pet3", "pet2", "pet1", "pet0", "old"]
 
     def test_query_and_projection(self, pets: Collection[dict[str, Any]]) -> None:
         """Pages are filtered by the query, with the projected fields."""
