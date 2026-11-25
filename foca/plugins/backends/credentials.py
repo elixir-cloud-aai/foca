@@ -558,6 +558,14 @@ class BackendSession(requests.Session):
     the environment, such as proxies and CA certificates, still apply.
     Credentials are dropped on redirects to other hosts or ports, and from
     `https` to `http`, as `requests` does.
+
+    Use it for the identity provider and the backends of the gateway's
+    configuration. It doesn't check the addresses that it connects to,
+    and follows redirects by default (except for `head()`): send requests
+    to backends discovered in registries with
+    :py:class:`foca.utils.http.GuardedClient` instead, passing the
+    credentials as `auth` (or applying them to its `headers` with
+    `Credentials.apply()`).
     """
 
     def __init__(self) -> None:
