@@ -381,9 +381,9 @@ class PageKey:
         descending: Whether to sort in descending order.
 
     Raises:
-        ValueError: The fields are a string instead of a tuple, there are no
-            fields, a field name is empty, has empty parts or starts with
-            `$`, or fields are named twice.
+        ValueError: The fields are not a tuple of strings (e.g., a string),
+            there are no fields, a field name is empty, has empty parts or
+            starts with `$`, or fields are named twice.
 
     Examples:
         >>> key = PageKey(("name",))
@@ -398,8 +398,9 @@ class PageKey:
         """Check the fields."""
         if (
             # A string, e.g., `("name")`, would sort by its characters
-            isinstance(self.fields, str)
+            not isinstance(self.fields, tuple)
             or not self.fields
+            or not all(isinstance(field, str) for field in self.fields)
             or len(set(self.fields)) != len(self.fields)
             or not all(_FIELD.fullmatch(field) for field in self.fields)
         ):

@@ -119,10 +119,11 @@ class TestPageKey:
         with pytest.raises(ValueError, match="fields"):
             PageKey(fields)
 
-    def test_string_of_fields(self) -> None:
-        """A string instead of a tuple of fields is refused, e.g., `("name")`."""
+    @pytest.mark.parametrize("fields", ["name", ["name"], (1,)])
+    def test_fields_not_tuple_of_strings(self, fields: object) -> None:
+        """Fields other than a tuple of strings are refused, e.g., `("name")`."""
         with pytest.raises(ValueError, match="fields"):
-            PageKey("name")  # type: ignore[arg-type]
+            PageKey(fields)  # type: ignore[arg-type]
 
     def test_sort(self) -> None:
         """Pages are sorted by all fields, in one direction."""

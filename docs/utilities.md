@@ -151,8 +151,8 @@ refused, and the values of the last item of a page must fit into a token of
 `find_page()` raises a `ValueError` (so the app answers `500`) for a page
 that has a next page and whose last item has no valid token. Items without
 a sort field sort as `null`: first in ascending order (a `500` once they
-fill a page), and last in descending order, where the filter of the next
-page leaves them out, so they are skipped. So sort by values that the app
+fill a page), and last in descending order, where the filter of each next
+page leaves them out, so they are skipped once a page ends before them. So sort by values that the app
 sets itself (e.g., times of creation and identifiers), not by values that
 users write (e.g., names), unless the app checks their type and length when
 they are written. If you pass a `projection` to `find_page()`, include the
@@ -161,8 +161,8 @@ to find the items after a token.
 
 Errors of the app's own calls raise `ValueError` (see the [API
 reference](reference.md) for each): e.g., page keys without fields, with a
-string instead of a tuple of fields, with fields named twice, or with names
-that have empty parts or parts starting with `$`; a `default` of
+string or list instead of a tuple of fields, with fields named twice, or
+with names that have empty parts or parts starting with `$`; a `default` of
 `get_page_size()` larger than its `maximum` (with a `maximum` below 100,
 pass a `default` too).
 
