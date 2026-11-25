@@ -101,15 +101,20 @@ creation.
   a maximum (by default 100 and 1000). Unlike `get_page()`, it refuses sizes
   above the maximum, as there are no links that would tell clients the
   actual size.
-- `PageKey` names the fields to sort by, and whether descending, e.g., newest
-  first. It issues the token of the page after an item (`token()`) and gets
-  the MongoDB filter for the items after a token (`after()`); `sort` is the
-  sort specification for `pymongo`.
-- `find_page()` gets a page of a collection, filtered by your query, with the
-  token of the next page; it has none on the last page.
+- `PageKey` names the fields to sort by, and whether all of them are sorted
+  in descending order, e.g., newest first. It issues the token of the page
+  after an item (`token()`) and gets the MongoDB filter for the items after
+  a token (`after()`); `sort` is the sort specification for `pymongo`.
+- `find_page()` gets a page of a collection, filtered by your query: a
+  `TokenPage` with the `items` and the token of the next page (`next_token`),
+  which is `None` on the last page.
 
 Parameter names stay with your API: you pass them, so that errors name them.
-Pass `None` as the token for the first page; an empty token is invalid.
+Pass `None` as the token for the first page; an empty token is invalid, as
+no page has one. Some clients send an empty token for the first page (e.g.,
+generated clients with a default of `""`): if your API accepts that, pass
+`None if pageToken == "" else pageToken`. Tokens that aren't strings (e.g.,
+from JSON bodies) are invalid too.
 
 ```python
 from foca import get_collection
@@ -143,9 +148,25 @@ values of the same type in all items: MongoDB compares values of one type
 only, so pages would skip items of other types. Paths through arrays are
 refused, and the values of the last item of a page must fit into a token of
 4096 characters (about 3000 bytes of JSON), so don't sort by long strings.
-If you pass a `projection`
-to `find_page()`, include the sort fields. An index on the sort fields, in
-the same order, keeps pages fast.
+`find_page()` raises a `ValueError` (so the app answers `500`) for a page
+that has a next page and whose last item has no valid token. Items without
+a sort field sort as `null`, which no comparison of that field in the
+filter of a next page matches: in ascending order, they come first among
+the items with the same values of the earlier fields (a `500` once one ends
+a page with a next page); in descending order, they come last among them
+and may be skipped. So sort by values that the app sets itself (e.g., times
+of creation and identifiers), not by values that users write (e.g., names),
+unless the app checks their type and length when they are written. If you
+pass a `projection` to `find_page()`, include the sort fields. An index on
+the sort fields, in the same order, helps MongoDB to find the items after a
+token.
+
+Errors of the app's own calls raise `ValueError` (see the [API
+reference](reference.md) for each): e.g., page keys without fields, with a
+string or list instead of a tuple of fields, with fields named twice, or
+with names that have empty parts or parts starting with `$`; a `default` of
+`get_page_size()` larger than its `maximum` (with a `maximum` below 100,
+pass a `default` too).
 
 Invalid requests get `400 Bad Request` with the invalid field in the member
 `errors` of the [problem details](problems/invalid-request.md), naming the
