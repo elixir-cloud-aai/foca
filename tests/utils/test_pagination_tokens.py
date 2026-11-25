@@ -211,6 +211,7 @@ class TestPageKey:
             "ab cd",
             "+/+/",
             "A" * 5000,
+            base64.urlsafe_b64encode(b"[" * 2000 + b"]" * 2000).decode()[:4096],
             base64.urlsafe_b64encode(b"\xff\xfe").decode().rstrip("="),
             base64.urlsafe_b64encode(b"not json").decode().rstrip("="),
         ],

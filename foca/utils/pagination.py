@@ -363,9 +363,10 @@ class PageKey:
     Args:
         fields: Names of the fields to sort by, in dot notation for nested
             fields. Items must have a value for each field that is an
-            `ObjectId`, a `datetime`, an integer of 8 bytes or a string, and
-            the values of all fields together must be unique; end with a
-            unique field as tie-breaker, e.g., `("created", "_id")`.
+            `ObjectId`, a `datetime`, an integer of 8 bytes or a string, of
+            the same type in all items (MongoDB compares values of one type
+            only), and the values of all fields together must be unique; end
+            with a unique field as tie-breaker, e.g., `("created", "_id")`.
         descending: Whether to sort in descending order (all fields), e.g.,
             newest first.
 
@@ -451,9 +452,10 @@ class PageKey:
             if not isinstance(entries, list) or len(entries) != len(self.fields):
                 raise ValueError("not a token of this key")
             values = [_decode_value(entry) for entry in entries]
-        except (ValueError, binascii.Error):
+        except (ValueError, binascii.Error, RecursionError):
             # `UnicodeDecodeError` and `json.JSONDecodeError` are
-            # `ValueError`s
+            # `ValueError`s; `RecursionError` for deeply nested JSON (Python
+            # 3.11)
             raise _invalid_parameter(
                 "Must be a page token that this service returned.",
                 "invalid-format",

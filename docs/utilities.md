@@ -134,9 +134,11 @@ def listPets(user, pageSize=None, pageToken=None):
 Choose the sort fields so that their values together are unique, ending with
 a unique field such as `_id`, and give every item a value for each of them
 that is an `ObjectId`, a `datetime`, an integer of 8 bytes or a string (not
-`None`); otherwise, `token()` raises a `ValueError`. If you pass a
-`projection` to `find_page()`, include the sort fields. An index on the sort
-fields, in the same order, keeps pages fast.
+`None`); otherwise, `token()` raises a `ValueError`. Each field must have
+values of the same type in all items: MongoDB compares values of one type
+only, so pages would skip items of other types. If you pass a `projection`
+to `find_page()`, include the sort fields. An index on the sort fields, in
+the same order, keeps pages fast.
 
 Invalid requests get `400 Bad Request` with the invalid field in the member
 `errors` of the [problem details](problems/invalid-request.md), naming the
