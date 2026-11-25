@@ -381,8 +381,9 @@ class PageKey:
         descending: Whether to sort in descending order.
 
     Raises:
-        ValueError: There are no fields, a field name is empty, has empty
-            parts or starts with `$`, or fields are named twice.
+        ValueError: The fields are not a tuple of strings (e.g., a string),
+            there are no fields, a field name is empty, has empty parts or
+            starts with `$`, or fields are named twice.
 
     Examples:
         >>> key = PageKey(("name",))
@@ -396,7 +397,10 @@ class PageKey:
     def __post_init__(self) -> None:
         """Check the fields."""
         if (
-            not self.fields
+            # A string, e.g., `("name")`, would sort by its characters
+            not isinstance(self.fields, tuple)
+            or not self.fields
+            or not all(isinstance(field, str) for field in self.fields)
             or len(set(self.fields)) != len(self.fields)
             or not all(_FIELD.fullmatch(field) for field in self.fields)
         ):
@@ -447,11 +451,13 @@ class PageKey:
 
         Raises:
             foca.errors.InvalidFieldsProblem: The token is not one that
-                :py:meth:`token` returns for this key (`invalid-format`),
-                naming the parameter, without quoting the token.
+                :py:meth:`token` returns for this key, or not a string
+                (`invalid-format`), naming the parameter, without quoting the
+                token.
         """
         try:
-            if not _TOKEN.fullmatch(token):
+            # Tokens from JSON bodies may not be strings
+            if not isinstance(token, str) or not _TOKEN.fullmatch(token):
                 raise ValueError("not a token")
             padding = "=" * (-len(token) % 4)
             raw = base64.urlsafe_b64decode(token + padding)
