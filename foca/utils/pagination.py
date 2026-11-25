@@ -200,8 +200,8 @@ _MIN_VALUE = -(2**63)
 _FIELD = re.compile(r"[^.$][^.]*(?:\.[^.$][^.]*)*")
 
 
-def _size_error(detail: str, code: str, parameter: str) -> InvalidFieldsProblem:
-    """Get the problem of an invalid page size.
+def _invalid_parameter(detail: str, code: str, parameter: str) -> InvalidFieldsProblem:
+    """Get the problem of an invalid pagination parameter.
 
     Args:
         detail: Message, without the value.
@@ -255,11 +255,11 @@ def get_page_size(
     if isinstance(value, str) and _INTEGER.fullmatch(value):
         value = int(value)
     if not isinstance(value, int) or isinstance(value, bool):
-        raise _size_error("Must be an integer.", "invalid-type", parameter)
+        raise _invalid_parameter("Must be an integer.", "invalid-type", parameter)
     if value < 1:
-        raise _size_error("Must be at least 1.", "too-small", parameter)
+        raise _invalid_parameter("Must be at least 1.", "too-small", parameter)
     if value > maximum:
-        raise _size_error(f"Must be at most {maximum}.", "too-large", parameter)
+        raise _invalid_parameter(f"Must be at most {maximum}.", "too-large", parameter)
     return value
 
 
@@ -310,12 +310,14 @@ def _decode_value(entry: object) -> object:
 
     Raises:
         ValueError: The entry is not one that :py:func:`_encode_value`
-            returns.
+            returns (`UnicodeEncodeError` for strings with lone surrogates).
     """
     if not isinstance(entry, list) or len(entry) != 2:
         raise ValueError("not a tagged value")
     tag, value = entry
     if tag == "s" and isinstance(value, str):
+        # JSON escapes can give lone surrogates, which BSON can't encode
+        value.encode()
         return value
     if tag == "o" and isinstance(value, str) and _OBJECT_ID.fullmatch(value):
         return ObjectId(value)
@@ -452,14 +454,10 @@ class PageKey:
         except (ValueError, binascii.Error):
             # `UnicodeDecodeError` and `json.JSONDecodeError` are
             # `ValueError`s
-            raise InvalidFieldsProblem(
-                [
-                    FieldError(
-                        detail="Must be a page token that this service returned.",
-                        code="invalid-format",
-                        parameter=parameter,
-                    )
-                ]
+            raise _invalid_parameter(
+                "Must be a page token that this service returned.",
+                "invalid-format",
+                parameter,
             ) from None
         operator = "$lt" if self.descending else "$gt"
         conditions = [
@@ -507,7 +505,8 @@ def find_page(
             :py:func:`get_page_size`).
         parameter: Name of the token parameter, for errors (e.g.,
             `pageToken`).
-        token: Token of the page; the first page if `None`.
+        token: Token of the page; the first page if `None`. An empty token
+            is invalid, as no page has one.
         projection: Fields of the items to return; must include the sort
             fields.
 

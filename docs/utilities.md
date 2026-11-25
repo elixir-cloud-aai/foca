@@ -105,6 +105,7 @@ or deleted between requests, and MongoDB reads no skipped items.
   token of the next page; it has none on the last page.
 
 Parameter names stay with your API: you pass them, so that errors name them.
+Pass `None` as the token for the first page; an empty token is invalid.
 
 ```python
 from foca import get_collection
@@ -145,12 +146,13 @@ parameter but not quoting its value:
 | --- | --- | --- |
 | `invalid-type` | page size | The size is not an integer. |
 | `too-small`, `too-large` | page size | The size is less than 1, or more than the maximum. |
-| `invalid-format` | page token | The token is not one that the key issued, e.g., truncated, changed, or from a list with other sort fields. |
+| `invalid-format` | page token | The token is not one that the key issued, e.g., truncated, changed, or from a key with another number of sort fields. |
 
 Tokens are encoded (URL-safe base64 of JSON), not encrypted or signed:
 clients can read the sort values of the last item of a page from its token,
 and fabricate tokens with other values, which only start the same list
-elsewhere. So keep access control in the query, and sort by fields that the
+elsewhere; a token of another key with as many sort fields isn't refused
+either. So keep access control in the query, and sort by fields that the
 items' readers may see. Tokens don't expire; a token of an item that was
 deleted still continues after it.
 

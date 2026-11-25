@@ -6,6 +6,7 @@ import re
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
+import bson
 import mongomock
 import pytest
 from bson.objectid import ObjectId
@@ -139,7 +140,10 @@ class TestPageKey:
         """Values of the last item come back from its token."""
         key = PageKey(("v",))
         token = key.token({"v": value})
-        assert key.after(token, parameter="pageToken") == {"v": {"$gt": value}}
+        after = key.after(token, parameter="pageToken")
+        assert after == {"v": {"$gt": value}}
+        # The filter can be sent to MongoDB, which mongomock doesn't check
+        bson.encode(after)
 
     def test_naive_times_are_utc(self) -> None:
         """Times without zone, as `pymongo` returns them, are in UTC."""
@@ -236,6 +240,7 @@ class TestPageKey:
             [["i", 2**63]],
             [["s", 1]],
             [["s", None]],
+            [["s", "\ud800"]],
             [["o", "0123456789ABCDEF01234567"]],
             [["o", "0123456789abcdef0123456"]],
             [["o", {"$gt": ""}]],
@@ -369,8 +374,10 @@ class TestFindPage:
 
     def test_malformed_token(self, pets: Collection[dict[str, Any]]) -> None:
         """Malformed tokens are rejected."""
-        with pytest.raises(InvalidFieldsProblem):
+        with pytest.raises(InvalidFieldsProblem) as exc_info:
             self._page(pets, "not a token")
+        (error,) = exc_info.value.field_errors
+        assert (error.code, error.parameter) == ("invalid-format", "pageToken")
 
     def test_invalid_size(self, pets: Collection[dict[str, Any]]) -> None:
         """Sizes come from `get_page_size()`, so the app is wrong if not positive."""
