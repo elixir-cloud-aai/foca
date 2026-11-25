@@ -134,7 +134,10 @@ Choose one of these before you upgrade:
 Clients that name users, e.g., service clients naming the user they act for
 (`on_behalf_of_header`), keep naming them bare: FOCA namespaces them with the
 issuer of the service client. Clients of the endpoints for managing roles name
-users namespaced. An issuer that is the namespace of its subjects (no
+users namespaced. These endpoints and the permissions API still accept bare
+users (e.g., `PUT /pets/1/permissions/users/bob`, or `user:bob` in a rule),
+which then apply to nobody once an issuer namespaces its subjects: clients
+and scripts written for FOCA 0.22 must name users namespaced too. An issuer that is the namespace of its subjects (no
 `namespace` set) must not contain `|`, commas or line breaks, and must have at
 most 256 characters, also if it is the only one: set a `namespace` otherwise;
 FOCA refuses to start.
