@@ -90,6 +90,7 @@ configuration models, see [Configuration](configuration/index.md).
     options:
       members:
         - CasbinRule
+        - InvalidRuleError
         - validate_rule
         - validate_rule_value
 

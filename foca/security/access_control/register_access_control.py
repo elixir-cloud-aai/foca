@@ -213,7 +213,7 @@ def _check_policy_users(
     by default with the issuer as namespace, or without namespace for an
     issuer that keeps its subjects bare (cf.
     :py:func:`foca.security.auth.namespace_subject`). Rules naming other
-    users (e.g., bare users of an app that stored them before FOCA 0.23.0)
+    users (e.g., bare users of an app that stored them up to FOCA 0.22)
     apply to nobody under the models that FOCA ships, so a missed migration
     of, e.g., admin rules would go unnoticed. Custom models may match users
     in other ways (e.g., `user:*` with `keyMatch`), so only a warning is
@@ -458,7 +458,7 @@ def _check_stored_users(
     """Warn of stored rules naming users that no trusted issuer has.
 
     Covers rules that are not configured, e.g., written via the permissions
-    API, or stored with bare users before FOCA 0.23.0; configured ones are
+    API, or stored with bare users up to FOCA 0.22; configured ones are
     checked by :py:func:`_check_policy_users`. Only gives a hint, so startup
     continues if the check fails.
 
@@ -484,7 +484,7 @@ def _check_stored_users(
         logger.warning(
             "Stored policy rules name users without the namespace of a "
             "trusted issuer ('%s<namespace>|<subject>'), so they apply to "
-            "nobody, e.g., bare users stored before FOCA 0.23.0: namespace "
+            "nobody, e.g., bare users stored up to FOCA 0.22: namespace "
             "them with 'foca namespace-subjects', or set "
             "'security.auth.issuers[].namespace: \"\"' for the issuer whose "
             "subjects they are.",

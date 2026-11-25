@@ -92,7 +92,7 @@ base path. The permissions API isn't exported.
 Rewrites the bare users of stored policy rules (`user:<subject>`) to users of a trusted
 issuer, namespaced as `user:<namespace>|<subject>` (see [several trusted
 issuers](authentication.md#several-trusted-issuers)), e.g., the users that an app
-stored before FOCA 0.23.0, when subjects of a single issuer were bare (see [Migrating
+stored up to FOCA 0.22, when subjects of a single issuer were bare (see [Migrating
 to 0.23.0](migration-0.23.md#subjects-are-always-namespaced-by-issuer)). The argument
 is the namespace of the issuer whose users are bare: by default, the issuer itself, as
 in `security.auth.issuers`. Users that start with the namespace of a trusted issuer and

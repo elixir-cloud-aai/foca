@@ -1766,7 +1766,7 @@ class IssuerConfig(FOCABaseConfig):
             only one issuer is trusted, so that trusting another one later
             changes no stored subject. If `None` (default), the issuer. An
             empty value keeps the issuer's subjects bare, e.g., for an app
-            whose subjects were stored bare before FOCA 0.23.0, so that they
+            whose subjects were stored bare up to FOCA 0.22, so that they
             stay valid without moving data; an explicit opt-out for existing
             deployments, to be reconsidered for FOCA 1.0. At most one issuer
             may keep its subjects bare. Must

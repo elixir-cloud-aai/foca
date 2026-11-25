@@ -311,7 +311,9 @@ newer than in the images that CI tested for the commit) and
 scans them for vulnerabilities (`scan`, "Scan release image"; in jobs
 without the Docker Hub credentials and signing identity), releases
 the distributions to PyPI (`pypi`, "Release package"), attests and signs
-exactly the scanned images and only then tags them `X.Y.Z` and `latest`
+exactly the scanned images and only then tags them `X.Y.Z-pyV` (each
+Python version), `X.Y.Z` (the default Python version) and, for the highest
+stable release on `main`, `latest`
 (`release-image`, "Release image"), and creates a GitHub release
 (`publish`, "Publish release") with the
 curated notes followed by GitHub's generated ones (see [Image
