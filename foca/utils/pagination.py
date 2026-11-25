@@ -447,11 +447,13 @@ class PageKey:
 
         Raises:
             foca.errors.InvalidFieldsProblem: The token is not one that
-                :py:meth:`token` returns for this key (`invalid-format`),
-                naming the parameter, without quoting the token.
+                :py:meth:`token` returns for this key, or not a string
+                (`invalid-format`), naming the parameter, without quoting the
+                token.
         """
         try:
-            if not _TOKEN.fullmatch(token):
+            # Tokens may come from JSON bodies, as other types
+            if not isinstance(token, str) or not _TOKEN.fullmatch(token):
                 raise ValueError("not a token")
             padding = "=" * (-len(token) % 4)
             raw = base64.urlsafe_b64decode(token + padding)

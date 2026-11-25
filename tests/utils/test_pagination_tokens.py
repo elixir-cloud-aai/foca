@@ -241,6 +241,14 @@ class TestPageKey:
         if len(token) > 1:
             assert token not in error.detail
 
+    @pytest.mark.parametrize("token", [123, b"abc", None, ["abc"]])
+    def test_tokens_of_other_types(self, token: object) -> None:
+        """Tokens that are not strings are rejected, e.g., from JSON bodies."""
+        with pytest.raises(InvalidFieldsProblem) as exc_info:
+            PageKey(("v",)).after(token, parameter="page_token")  # type: ignore[arg-type]
+        (error,) = exc_info.value.field_errors
+        assert (error.code, error.parameter) == ("invalid-format", "page_token")
+
     @pytest.mark.parametrize(
         "data",
         [
