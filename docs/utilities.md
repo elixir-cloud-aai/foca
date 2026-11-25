@@ -81,8 +81,89 @@ parameters and the response in your API specification. The app needs
 Offsets have the usual limits of such pagination: items may be skipped or returned
 twice if the list changes between requests, and MongoDB reads all items it skips,
 so that large offsets on large collections are slow. If that matters for an API,
-use a sorted range query (`find({"id": {"$gt": last_id}})`) instead, or reject
-large offsets in the controller.
+use [page tokens](#page-tokens) instead, or reject large offsets in the
+controller.
+
+### Page tokens
+
+Many GA4GH APIs page lists with opaque page tokens instead (e.g., `pageSize`
+and `pageToken`, or `page_size` and `page_token`, and `next_page_token` in the
+response). Such pages continue after the last item of the previous page
+(keyset pagination), so no item is skipped or repeated when other items are
+added or deleted between requests, and MongoDB reads no skipped items. Items
+added before that last item, in the sort order, belong to pages already read,
+so they don't come; items whose sort values change between requests may be
+missed or come twice, so sort by values that don't change, e.g., the time of
+creation.
+`foca.utils.pagination` has helpers for them:
+
+- `get_page_size()` checks the page size of a request against a default and
+  a maximum (by default 100 and 1000). Unlike `get_page()`, it refuses sizes
+  above the maximum, as there are no links that would tell clients the
+  actual size.
+- `PageKey` names the fields to sort by, and whether descending, e.g., newest
+  first. It issues the token of the page after an item (`token()`) and gets
+  the MongoDB filter for the items after a token (`after()`); `sort` is the
+  sort specification for `pymongo`.
+- `find_page()` gets a page of a collection, filtered by your query, with the
+  token of the next page; it has none on the last page.
+
+Parameter names stay with your API: you pass them, so that errors name them.
+Pass `None` as the token for the first page; an empty token is invalid.
+
+```python
+from foca import get_collection
+from foca.utils.pagination import PageKey, find_page, get_page_size
+
+# Newest first; `_id` decides between pets created at the same time
+PETS = PageKey(("created", "_id"), descending=True)
+
+
+def listPets(user, pageSize=None, pageToken=None):
+    size = get_page_size(pageSize, parameter="pageSize", default=50, maximum=500)
+    page = find_page(
+        get_collection(db="myDb", collection="pets"),
+        {"owner": user},
+        key=PETS,
+        size=size,
+        token=pageToken,
+        parameter="pageToken",
+    )
+    response = {"pets": [{"name": pet["name"]} for pet in page.items]}
+    if page.next_token is not None:
+        response["nextPageToken"] = page.next_token
+    return response
+```
+
+Choose the sort fields so that their values together are unique, ending with
+a unique field such as `_id`, and give every item a value for each of them
+that is an `ObjectId`, a `datetime`, an integer of 8 bytes or a string (not
+`None`); otherwise, `token()` raises a `ValueError`. Each field must have
+values of the same type in all items: MongoDB compares values of one type
+only, so pages would skip items of other types. Paths through arrays are
+refused, and the values of the last item of a page must fit into a token of
+4096 characters (about 3000 bytes of JSON), so don't sort by long strings.
+If you pass a `projection`
+to `find_page()`, include the sort fields. An index on the sort fields, in
+the same order, keeps pages fast.
+
+Invalid requests get `400 Bad Request` with the invalid field in the member
+`errors` of the [problem details](problems/invalid-request.md), naming the
+parameter but not quoting its value:
+
+| Code | Parameter | Meaning |
+| --- | --- | --- |
+| `invalid-type` | page size | The size is not an integer. |
+| `too-small`, `too-large` | page size | The size is less than 1, or more than the maximum. |
+| `invalid-format` | page token | The token is not one that the key issued, e.g., truncated, changed, or from a key with another number of sort fields. |
+
+Tokens are encoded (URL-safe base64 of JSON), not encrypted or signed:
+clients can read the sort values of the last item of a page from its token,
+and fabricate tokens with other values, which only start the same list
+elsewhere; a token of another key with as many sort fields isn't refused
+either. So keep access control in the query, and sort by fields that the
+items' readers may see. Tokens don't expire; a token of an item that was
+deleted still continues after it.
 
 ## Checking and normalizing URLs
 
