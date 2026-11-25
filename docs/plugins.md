@@ -463,6 +463,10 @@ off these checks for its backends. Unlike `BackendSession`, `GuardedClient`
 ignores the proxies and CA certificates of the environment (e.g.,
 `HTTPS_PROXY`, `REQUESTS_CA_BUNDLE`): pass a `ca_bundle` for backends behind
 a private certificate authority; it sends no requests through proxies.
+Registries yield `https` backends only, so the client's default
+`allow_http=False` fits; it refuses response bodies larger than
+`max_response_size` (by default 16 MiB), so raise that for backends with
+larger responses.
 
 On startup, gateways call `check_backends(backends, client, token_provider,
 api="tes", public_url=..., key="custom.tes.backends")`. It refuses to start

@@ -563,7 +563,9 @@ class BackendSession(requests.Session):
     configuration. It doesn't check the addresses that it connects to,
     and follows redirects by default (except for `head()`): send requests
     to backends discovered in registries with
-    :py:class:`foca.utils.http.GuardedClient` instead.
+    :py:class:`foca.utils.http.GuardedClient` instead, passing the
+    credentials as `auth` (or applying them to its `headers` with
+    `Credentials.apply()`).
     """
 
     def __init__(self) -> None:
