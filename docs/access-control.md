@@ -1176,6 +1176,13 @@ service registry:
   `revoke_roles(resource, subject)` revokes them. Both raise `LastOwner`
   (`409 Conflict`) instead of removing or downgrading the last owner of a
   resource, so that every resource keeps an owner, which may be a group.
+  `grant_role()` (and `add_owner()`) raise `ValueError` for subjects to
+  which the role wouldn't apply: groups while group claim values aren't
+  used as subjects, clients that aren't service clients, and, with the
+  models that FOCA ships, users that no trusted issuer has (e.g., `alice`
+  without the namespace of an issuer that namespaces its subjects; see
+  [several trusted issuers](authentication.md#several-trusted-issuers));
+  stored roles of such subjects don't count as owners, and can be revoked.
 * `list_roles(resource)` lists the roles granted on a resource: users first,
   then groups and service clients, as `ResourceRole(subject_type, subject,
   role)`.
@@ -1753,6 +1760,12 @@ model):
   contain commas or line breaks, and must not start with `#`.
 * Values of `act` fields of policy definitions (e.g., `p = sub, obj, act`)
   must be valid regular expressions.
+* With the models that FOCA ships, values must not name users that no
+  trusted issuer has (`unknown-user`, e.g., `user:alice` without the
+  namespace of an issuer that namespaces its subjects), which would apply to
+  nobody, as FOCA checks for configured rules on startup. Stored rules
+  naming such users (e.g., from before FOCA namespaced subjects) can still
+  be deleted.
 
 The permissions API responds with `400` to invalid rules and identifiers,
 naming the invalid field in `errors` (see [invalid

@@ -53,6 +53,7 @@ from tests.security.access_control.callers import (
     TASK,
     as_caller,
     create_app,
+    model_path,
 )
 
 # Model with resource-scoped roles only
@@ -1053,3 +1054,39 @@ class TestNamespacedBySingleIssuer:
         with as_caller(app, ALICE):
             owner = set_owner_field({})
         assert owner == {"iss": ISSUER, "type": "user", "sub": f"{ISSUER}|alice"}
+
+    def test_users_without_namespace(self, app: Flask) -> None:
+        """Roles are not granted to users without the issuer's namespace.
+
+        They would apply to nobody, as the issuer namespaces its subjects;
+        stored roles of such users (e.g., from before the issuer namespaced
+        its subjects) don't count as owners, and may be revoked.
+        """
+        bob = f"{ISSUER}|bob"
+        with as_caller(app, ALICE):
+            add_owner(TASK)
+            for user in ("bob", f"https://login.example.com/oidc/|{bob}"):
+                with pytest.raises(ValueError, match="no trusted issuer"):
+                    grant_role(TASK, user, "maintainer")
+                with pytest.raises(ValueError, match="no trusted issuer"):
+                    add_owner("/tasks/2", subject=user)
+            assert grant_role(TASK, bob, "maintainer") == []
+            add_resource_role("carol", "owner", "/tasks/3")
+            add_resource_role(f"{ISSUER}|alice", "owner", "/tasks/3")
+            # the stale owner does not count, but may be removed
+            with pytest.raises(LastOwner):
+                revoke_roles("/tasks/3", f"{ISSUER}|alice")
+            assert revoke_roles("/tasks/3", "carol")
+
+    def test_users_without_namespace_custom_model(
+        self, app: Flask, tmp_path: Path
+    ) -> None:
+        """With custom models, which may match users in other ways, they are."""
+        packaged = Path(model_path()).read_text(encoding="utf-8")
+        model = tmp_path / "model.conf"
+        model.write_text(packaged.replace('"admin"', '"root"'), encoding="utf-8")
+        custom = create_app(model_file=str(model))
+        _get_app_config(custom).security.auth.issuers = [ISSUER]
+        with as_caller(custom, ALICE):
+            add_owner(TASK)
+            assert grant_role(TASK, "bob", "maintainer") == []

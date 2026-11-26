@@ -61,7 +61,11 @@ and store for users:
 
 Stored bare users then no longer apply, e.g., owners and admins granted via
 the permissions API lose their roles, and the app refuses to start while
-configured rules (`security.access_control.policies`) name bare users.
+configured rules (`security.access_control.policies`) name bare users. The
+permissions API (`unknown-user`) and the endpoints for managing roles
+(`400`, as `grant_role()` raises `ValueError`) refuse new rules and roles of
+such users, so that clients written for earlier versions don't grant roles
+that apply to nobody; stored ones can still be deleted or revoked.
 Choose one of these before you upgrade:
 
 1. **Keep the subjects bare:** set `namespace: ""` for the trusted issuer, so

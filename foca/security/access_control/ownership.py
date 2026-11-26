@@ -67,6 +67,7 @@ from foca.security.access_control.enforcement import (
 from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     validate_rule_value,
 )
+from foca.security.access_control.users import unknown_user_matcher
 from foca.utils.logging import escape_log_value
 
 logger = logging.getLogger(__name__)
@@ -460,12 +461,26 @@ def _check_applicable(subject: str, subject_type: SubjectType) -> None:
     Raises:
         ValueError: The subject is a group, but group claim values are not
             used as subjects (`access_control.group_mapping` is set, and
-            `access_control.keep_group_subjects` is not), or a client that
-            is not a service client (`auth.service_clients`), so that the
-            role would not apply, and the resource could be left without an
-            owner that applies.
+            `access_control.keep_group_subjects` is not), a client that is
+            not a service client (`auth.service_clients`), or a user that no
+            trusted issuer has (e.g., without the namespace of an issuer
+            that namespaces its subjects, cf.
+            :py:func:`foca.security.access_control.users.unknown_user_matcher`),
+            so that the role would not apply, and the resource could be left
+            without an owner that applies.
     """
     conf = get_config().security
+    if subject_type == "user":
+        unknown = unknown_user_matcher(conf.access_control, conf.auth)
+        if unknown is not None and unknown.match(
+            f"{conf.access_control.subject_prefix}{subject}"
+        ):
+            raise ValueError(
+                f"Roles granted to user '{subject}' do not apply: no trusted "
+                "issuer has the user; name users as '<namespace>|<subject>', "
+                "where the namespace is the issuer unless set in "
+                "'security.auth.issuers[].namespace'"
+            )
     if (
         subject_type == "group"
         and conf.access_control.group_mapping is not None

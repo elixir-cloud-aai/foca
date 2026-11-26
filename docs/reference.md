@@ -70,6 +70,11 @@ configuration models, see [Configuration](configuration/index.md).
         - ResourceRole
         - SubjectResourceRole
 
+::: foca.security.access_control.users
+    options:
+      members:
+        - unknown_user_matcher
+
 ::: foca.security.access_control.me
 
 ::: foca.security.access_control.ownership_server
