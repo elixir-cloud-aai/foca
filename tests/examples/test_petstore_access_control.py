@@ -139,16 +139,26 @@ def test_unauthenticated_body_unread(client: Client) -> None:
 def test_owners_manage_roles(client: Client) -> None:
     """Owners grant and revoke roles on their pets; others get 403."""
     url = _add_pet(client, "alice")
-    bob = f"{url}/permissions/users/{BOB}"
-    alice = f"{url}/permissions/users/{ALICE}"
+    # users, namespaced by issuer, are named in the body and the query, so
+    # that their slashes and `|` need no special routes or rules
+    users = f"{url}/permissions/users"
 
     # only owners manage roles
     assert client.get(f"{url}/permissions", headers=_headers("bob")).status_code == 403
-    response = client.put(bob, json={"role": "owner"}, headers=_headers("bob"))
+    response = client.put(
+        users, json={"user": BOB, "role": "owner"}, headers=_headers("bob")
+    )
     assert response.status_code == 403
 
+    # users must be named
+    response = client.put(users, json={"role": "owner"}, headers=_headers("alice"))
+    assert response.status_code == 400
+    assert client.delete(users, headers=_headers("alice")).status_code == 400
+
     # maintainers may get, but not delete pets
-    response = client.put(bob, json={"role": "maintainer"}, headers=_headers("alice"))
+    response = client.put(
+        users, json={"user": BOB, "role": "maintainer"}, headers=_headers("alice")
+    )
     assert response.status_code == 200
     assert response.json() == {
         "subject_type": "user",
@@ -166,13 +176,18 @@ def test_owners_manage_roles(client: Client) -> None:
     ]
 
     # the last owner can't be removed
-    assert client.delete(alice, headers=_headers("alice")).status_code == 409
-    assert client.delete(bob, headers=_headers("alice")).status_code == 200
+    response = client.delete(users, params={"user": ALICE}, headers=_headers("alice"))
+    assert response.status_code == 409
+    response = client.delete(users, params={"user": BOB}, headers=_headers("alice"))
+    assert response.status_code == 200
+    assert response.json() == BOB
     assert client.get(url, headers=_headers("bob")).status_code == 403
 
     # owners of deleted pets lose their roles
     assert client.delete(url, headers=_headers("alice")).status_code == 204
-    response = client.put(bob, json={"role": "owner"}, headers=_headers("alice"))
+    response = client.put(
+        users, json={"user": BOB, "role": "owner"}, headers=_headers("alice")
+    )
     assert response.status_code == 403
 
 
@@ -183,8 +198,11 @@ def test_roles_on_deleted_pets(client: Client, monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(
         sys.modules["controllers"], "_pet_exists", lambda id: lambda: False
     )
-    bob = f"{url}/permissions/users/{BOB}"
-    response = client.put(bob, json={"role": "owner"}, headers=_headers("alice"))
+    response = client.put(
+        f"{url}/permissions/users",
+        json={"user": BOB, "role": "owner"},
+        headers=_headers("alice"),
+    )
     assert response.status_code == 404
     response = client.get(f"{url}/permissions", headers=_headers("alice"))
     assert response.json() == [

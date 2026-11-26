@@ -244,10 +244,11 @@ characters; namespaced subjects that don't fit into policy rules (1024
 characters, with `user:`) are denied, as long subjects are without
 namespaces. Tokens of untrusted issuers are
 rejected anyway. Proxies that merge slashes in paths (e.g., nginx's
-`merge_slashes`) change subjects namespaced by issuer URLs in paths (e.g.,
-of the [endpoints for managing
-roles](access-control.md#endpoints-for-managing-roles)): set namespaces
-without slashes then.
+`merge_slashes`) or decode paths change subjects namespaced by issuer URLs in
+paths, so name users in request bodies or queries instead, as FOCA's
+[endpoints for managing
+roles](access-control.md#endpoints-for-managing-roles) do; in endpoints of
+your own that name users in paths, set namespaces without slashes.
 
 `get_current_subject()` returns the namespaced subject, and
 `get_on_behalf_of_user()` namespaces users named by a service client with

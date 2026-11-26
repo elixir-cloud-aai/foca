@@ -211,7 +211,10 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
-  /pets/{id}/permissions/users/{userId}:
+  # Users are named in the body and the query, not in the path: they are
+  # namespaced by issuer (e.g., `https://login.example.org/oidc/|alice`), so
+  # in paths, proxies that merge slashes would change them
+  /pets/{id}/permissions/users:
     put:
       description: >-
         Grants a user a role on a pet, replacing their other roles; owners
@@ -225,16 +228,6 @@ paths:
           schema:
             type: integer
             format: int64
-        - name: userId
-          in: path
-          description: >-
-            Identifier of the user: the `sub` claim, namespaced by issuer
-            (e.g., `https://login.example.org/oidc/|alice`), so it may contain
-            slashes
-          required: true
-          schema:
-            type: string
-            format: path
       requestBody:
         required: true
         content:
@@ -242,8 +235,15 @@ paths:
             schema:
               type: object
               required:
+                - user
                 - role
               properties:
+                user:
+                  type: string
+                  minLength: 1
+                  description: >-
+                    Identifier of the user: the `sub` claim, namespaced by
+                    issuer (e.g., `https://login.example.org/oidc/|alice`)
                 role:
                   type: string
                   enum: [owner, maintainer]
@@ -301,16 +301,15 @@ paths:
           schema:
             type: integer
             format: int64
-        - name: userId
-          in: path
+        - name: user
+          in: query
           description: >-
             Identifier of the user: the `sub` claim, namespaced by issuer
-            (e.g., `https://login.example.org/oidc/|alice`), so it may contain
-            slashes
+            (e.g., `https://login.example.org/oidc/|alice`), percent-encoded
           required: true
           schema:
             type: string
-            format: path
+            minLength: 1
       responses:
         '200':
           description: identifier of the user
@@ -318,6 +317,12 @@ paths:
             application/json:
               schema:
                 type: string
+        '400':
+          description: The request names no user.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '409':
           description: The user is the last owner of the pet.
           content:
