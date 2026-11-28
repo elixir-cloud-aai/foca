@@ -38,6 +38,10 @@ security:
     api_serve_spec: true
     api_enabled: true
     api_base_path: /admin/access-control
+    api_refused_rules:
+      policy_types: [g2]
+      roles: [owner, maintainer]
+      paths: ["{base_path}/tasks/*"]
     me_enabled: false
     me_path: /me
     me_hook: my_app.access.me_fields
@@ -54,6 +58,15 @@ specification, while policies are still enforced. `api_base_path` moves it, unle
 API](../access-control.md#configuring-the-api)). `me_enabled`, `me_path` and `me_hook`
 configure an endpoint telling callers who they are (cf. [The current
 caller](../access-control.md#the-current-caller)).
+
+`api_refused_rules` lists policy types, roles and paths of rules that the
+permissions API refuses to create or update (`400`), e.g., so that admins can't
+grant themselves access to the resources of others; by default, none (cf.
+[Refusing rules in the API](../access-control.md#refusing-rules-in-the-api)).
+Paths are `keyMatch2` patterns of full request paths and may start with
+`{base_path}`; the app refuses to start (`ValueError`) if one does but the app
+has no API. Without the API (`api_enabled: false`), a warning is logged, as the
+setting then has no effect.
 
 `resource_roles_cover_custom_methods` is off by default. Set to `true`, roles on a
 resource also cover its custom methods (e.g., a role on `/tasks/1` covers
@@ -179,5 +192,9 @@ run. See [startup checks](../deployment.md#startup-checks) for all of
 FOCA's checks.
 
 ::: foca.models.config.AccessControlConfig
+    options:
+      members: false
+
+::: foca.models.config.RefusedRulesConfig
     options:
       members: false
