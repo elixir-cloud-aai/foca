@@ -26,6 +26,7 @@ from foca.models.config import (
     IndexConfig,
     IssuerConfig,
     MongoConfig,
+    RefusedRulesConfig,
     RequestIdConfig,
     SecurityConfig,
     ServerConfig,
@@ -1262,6 +1263,42 @@ def test_policy_revision_needs_access_control(
     """Revision options are refused if access control isn't enabled."""
     with pytest.raises(ValidationError, match=name):
         SecurityConfig(access_control=AccessControlConfig(**options))
+
+
+def test_RefusedRulesConfig_defaults() -> None:
+    """By default, the permissions API refuses no rules."""
+    refused = AccessControlConfig().api_refused_rules
+    assert refused == RefusedRulesConfig()
+    assert refused.any is False
+    assert SecurityConfig(access_control=AccessControlConfig())
+
+
+@pytest.mark.parametrize(
+    "options",
+    [{"policy_types": ["g2"]}, {"roles": ["owner"]}, {"paths": ["/tasks/*"]}],
+)
+def test_RefusedRulesConfig_valid(options: dict[str, list[str]]) -> None:
+    """Each kind of refused rules counts, and needs access control."""
+    refused = RefusedRulesConfig(**options)
+    assert refused.any is True
+    with pytest.raises(ValidationError, match="api_refused_rules"):
+        SecurityConfig(access_control=AccessControlConfig(api_refused_rules=refused))
+
+
+@pytest.mark.parametrize(
+    "options,match",
+    [
+        ({"policy_types": ["x"]}, "Refused policy types"),
+        ({"policy_types": ["g 2"]}, "Refused policy types"),
+        ({"roles": ["owner", ""]}, "Refused roles"),
+        ({"paths": ["tasks/*"]}, "Refused paths"),
+        ({"other": []}, "other"),
+    ],
+)
+def test_RefusedRulesConfig_invalid(options: dict[str, Any], match: str) -> None:
+    """Invalid policy types, roles and paths are rejected."""
+    with pytest.raises(ValidationError, match=match):
+        RefusedRulesConfig(**options)
 
 
 def test_IdConfig_defaults() -> None:

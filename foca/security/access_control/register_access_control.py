@@ -844,6 +844,10 @@ def register_permission_specs(
 
     Returns:
         Connexion app with updated permission specifications.
+
+    Raises:
+        ValueError: A path of `access_control.api_refused_rules` has the
+            placeholder `{base_path}`, but the app has no API.
     """
     if not access_control_config.api_enabled:
         if access_control_config.api_specs is not None:
@@ -856,8 +860,14 @@ def register_permission_specs(
                 "'security.access_control.self_service' has no effect, as "
                 "'security.access_control.api_enabled' is false."
             )
+        if access_control_config.api_refused_rules.any:
+            logger.warning(
+                "'security.access_control.api_refused_rules' has no effect, as "
+                "'security.access_control.api_enabled' is false."
+            )
         logger.info("Permission management API not registered.")
         return app
+    _check_refused_paths(app.app, access_control_config)
     specification: Path | dict[str, Any]
     base_path: dict[str, str] = {}
     if access_control_config.api_specs is None:
@@ -917,6 +927,30 @@ def register_permission_specs(
     )
     logger.info("Permission management API registered from '%s'.", spec_path)
     return app
+
+
+def _check_refused_paths(
+    app: Flask, access_control_config: AccessControlConfig
+) -> None:
+    """Ensure that the refused paths of the permissions API apply.
+
+    Args:
+        app: Flask app, with the app's APIs registered.
+        access_control_config: Access control configuration.
+
+    Raises:
+        ValueError: A refused path has the placeholder `{base_path}`, but the
+            app has no API, so that it would refuse nothing.
+    """
+    if _get_api_base_paths(app):
+        return
+    for path in access_control_config.api_refused_rules.paths:
+        if path.startswith(BASE_PATH_PLACEHOLDER):
+            raise ValueError(
+                f"Path {path!r} of 'security.access_control.api_refused_rules' "
+                f"has the placeholder '{BASE_PATH_PLACEHOLDER}', but the app has "
+                "no API ('api.specs')"
+            )
 
 
 def register_me_endpoint(app: App, access_control_config: AccessControlConfig) -> App:

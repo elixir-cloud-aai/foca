@@ -1027,3 +1027,119 @@ class TestPermissionsApiSwitch:
         """Paths of several segments are fine."""
         path = "/a-b/c_d/e.f"
         assert AccessControlConfig(api_base_path=path).api_base_path == path
+
+
+ADMIN_HEADERS = {"Authorization": "Bearer admin"}
+REFUSED_RULES = {
+    "policy_types": ["g2"],
+    "roles": ["owner"],
+    "paths": ["{base_path}/pets/*"],
+}
+
+
+class TestRefusedRules:
+    """Tests of `api_refused_rules` via the permissions API."""
+
+    url = "/admin/access-control/permissions"
+
+    @staticmethod
+    def _rule(ptype: str, *values: str) -> dict[str, Any]:
+        """Request body of a rule.
+
+        Args:
+            ptype: Policy type.
+            *values: Values of the rule.
+
+        Returns:
+            Permission with the rule.
+        """
+        return {
+            "policy_type": ptype,
+            "rule": {f"v{index}": value for index, value in enumerate(values)},
+        }
+
+    @pytest.mark.parametrize(
+        "rule,pointer,code",
+        [
+            (
+                ["g2", "user:alice", "owner", "/other"],
+                "#/policy_type",
+                "refused-policy-type",
+            ),
+            (["g", "user:root", "owner"], "#/rule/v1", "refused-role"),
+            (["p", "admin", "/api/v1/pets/:id", "GET"], "#/rule/v1", "refused-path"),
+            (["p", "admin", "/api/*", "GET"], "#/rule/v1", "refused-path"),
+        ],
+    )
+    def test_refused(
+        self, tmp_path: Path, rule: list[str], pointer: str, code: str
+    ) -> None:
+        """Refused rules can't be created or updated, even by admins."""
+        app = _create_app(tmp_path, [PETS_SPEC], api_refused_rules=REFUSED_RULES)
+        body = self._rule(*rule)
+        responses = [
+            Client(app).post(self.url, json=body, headers=ADMIN_HEADERS),
+            Client(app).put(f"{self.url}/abcdef", json=body, headers=ADMIN_HEADERS),
+        ]
+        for response in responses:
+            assert response.status_code == 400
+            assert [
+                (error["pointer"], error["code"]) for error in response.json()["errors"]
+            ] == [(pointer, code)]
+        listed = Client(app).get(self.url, headers=ADMIN_HEADERS).json()
+        assert listed["pagination"]["total"] == 0
+
+    @pytest.mark.parametrize("refused", [{}, REFUSED_RULES])
+    def test_allowed(self, tmp_path: Path, refused: dict[str, Any]) -> None:
+        """Other rules can still be written; without the option, all can."""
+        app = _create_app(tmp_path, [PETS_SPEC], api_refused_rules=refused)
+        body = self._rule("p", "admin", "/api/v1/pets", "GET")
+        response = Client(app).post(self.url, json=body, headers=ADMIN_HEADERS)
+        assert response.status_code == 200
+        body = self._rule("g", "user:alice", "maintainer")
+        response = Client(app).put(
+            f"{self.url}/abcdef", json=body, headers=ADMIN_HEADERS
+        )
+        assert response.status_code == 200
+        body = self._rule("g2", "user:alice", "owner", "/api/v1/pets/1")
+        response = Client(app).post(self.url, json=body, headers=ADMIN_HEADERS)
+        assert response.status_code == (400 if refused else 200)
+
+    def test_policies_not_refused(self, tmp_path: Path) -> None:
+        """Configured rules aren't refused."""
+        app = _create_app(
+            tmp_path,
+            [PETS_SPEC],
+            policies=[
+                ["p", "owner", "/api/v1/pets/:id", "GET"],
+                ["g2", "user:alice", "owner", "/api/v1/pets/1"],
+            ],
+            api_refused_rules=REFUSED_RULES,
+        )
+        assert _request(app, "alice", lambda: is_permitted_for("/api/v1/pets/1"))
+
+    def test_disabled_api(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Refused rules without the API are pointed out."""
+        _create_app(
+            tmp_path, [PETS_SPEC], api_enabled=False, api_refused_rules=REFUSED_RULES
+        )
+        assert (
+            "'security.access_control.api_refused_rules' has no effect" in caplog.text
+        )
+
+    def test_placeholder_without_api(self, tmp_path: Path) -> None:
+        """The placeholder is refused if the app has no API."""
+        with pytest.raises(ValueError, match="no API"):
+            _create_app(tmp_path, [], api_refused_rules=REFUSED_RULES)
+
+    def test_without_placeholder_without_api(self, tmp_path: Path) -> None:
+        """Paths without the placeholder need no API."""
+        app = _create_app(tmp_path, [], api_refused_rules={"paths": ["/pets/*"]})
+        response = Client(app).post(
+            self.url,
+            json=self._rule("p", "admin", "/pets/1", "GET"),
+            headers=ADMIN_HEADERS,
+        )
+        assert response.status_code == 400
