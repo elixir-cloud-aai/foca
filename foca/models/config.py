@@ -43,6 +43,7 @@ from foca.security.access_control.constants import (
     RESOURCE_ROLE_MODEL_FILE,
     SUBJECT_TYPE_PREFIXES,
 )
+from foca.security.access_control.refused_rules import validate_refused_path
 from foca.utils.misc import generate_id
 from foca.utils.service_info import (
     import_runtime_function,
@@ -985,6 +986,116 @@ class APIConfig(FOCABaseConfig):
         return v
 
 
+class RefusedRulesConfig(FOCABaseConfig):
+    """Model for the policy rules that the permissions API refuses.
+
+    Rules set via `AccessControlConfig.policies`, the resource ownership
+    helpers or the database are not affected. Refused rules are rejected with
+    `400`, naming the refused field (cf.
+    :py:func:`foca.security.access_control.refused_rules.check_refused`).
+
+    Args:
+        policy_types: Policy types of which no rules can be written (e.g.,
+            `g2`, for resource-scoped roles).
+        roles: Roles that role rules (policy types `g*`) can't grant, also not
+            to other roles (e.g., `owner`, so that nobody can make themselves
+            owner of all resources via `g`), nor subjects or roles that inherit
+            them via rules in effect of the same policy type (e.g., `team-lead`
+            with `[g, team-lead, owner]`).
+        paths: Paths for which no rules can be written, as `keyMatch2` patterns
+            of full request paths (`*`, only after `/`, matches any
+            characters, also `/`;
+            `:name` one segment, e.g., `/ga4gh/tes/v1/tasks/*`). They may start
+            with the placeholder `{base_path}`, which is replaced by the base
+            path of each of the app's APIs. Rules are refused if a value that
+            is a path (`obj` fields of policy definitions, the resources of
+            role definitions with three fields) may apply to a path that one of
+            them matches, also via sub-paths or custom methods of resources
+            (cf. :py:mod:`foca.security.access_control.refused_rules`).
+
+    Attributes:
+        policy_types: Refused policy types.
+        roles: Roles that role rules can't grant.
+        paths: Paths for which no rules can be written.
+
+    Raises:
+        pydantic.ValidationError: A policy type is not `p` or `g`, optionally
+            followed by digits, a role is empty, or a path is not an absolute
+            `keyMatch2` pattern (cf.
+            :py:func:`foca.security.access_control.refused_rules.validate_refused_path`).
+
+    Examples:
+        >>> refused = RefusedRulesConfig(
+        ...     policy_types=["g2"], paths=["{base_path}/tasks/*"]
+        ... )
+        >>> refused.policy_types
+        ['g2']
+    """
+
+    policy_types: list[str] = Field(default_factory=list)
+    roles: list[str] = Field(default_factory=list)
+    paths: list[str] = Field(default_factory=list)
+
+    @property
+    def has_rules(self) -> bool:
+        """Whether any rules are refused."""
+        return bool(self.policy_types or self.roles or self.paths)
+
+    @field_validator("policy_types")
+    @classmethod
+    def validate_policy_types(cls, v: list[str]) -> list[str]:
+        """Validate the refused policy types.
+
+        Args:
+            v: Policy types.
+
+        Returns:
+            The policy types.
+
+        Raises:
+            ValueError: A policy type is not `p` or `g`, optionally followed by
+                digits.
+        """
+        for ptype in v:
+            if not re.fullmatch(r"[pg]\d*", ptype):
+                raise ValueError(
+                    "Refused policy types must be 'p' or 'g', optionally "
+                    f"followed by digits: {ptype!r}"
+                )
+        return v
+
+    @field_validator("roles")
+    @classmethod
+    def validate_roles(cls, v: list[str]) -> list[str]:
+        """Validate the refused roles.
+
+        Args:
+            v: Roles.
+
+        Returns:
+            The roles.
+
+        Raises:
+            ValueError: A role is empty.
+        """
+        if not all(v):
+            raise ValueError("Refused roles must not be empty")
+        return v
+
+    @field_validator("paths")
+    @classmethod
+    def validate_paths(cls, v: list[str]) -> list[str]:
+        """Validate the refused paths.
+
+        Args:
+            v: Paths.
+
+        Returns:
+            The paths.
+        """
+        return [validate_refused_path(path) for path in v]
+
+
 class AccessControlConfig(FOCABaseConfig):
     """Model for setting access control configuration.
 
@@ -1000,6 +1111,11 @@ class AccessControlConfig(FOCABaseConfig):
             before), which `policies` doesn't remove.
         api_base_path: Base path of the default specification of the permissions
             API. A custom one (`api_specs`) wins, with a warning.
+        api_refused_rules: Policy types, roles and paths of rules that the
+            permissions API refuses to create or update (cf.
+            :py:class:`RefusedRulesConfig`), e.g., so that whoever may manage
+            rules can't grant themselves access to the resources of others.
+            By default, none.
         api_specs: Path to a custom API specification of the permissions
             API. If None, the default specification is used. Controllers are
             resolved via the `operationId` of each operation.
@@ -1156,6 +1272,7 @@ class AccessControlConfig(FOCABaseConfig):
         api_enabled: Whether the permissions API is registered.
         api_base_path: Base path of the default specification of the
             permissions API.
+        api_refused_rules: Rules that the permissions API refuses.
         api_specs: Path to a custom API specification of the permissions
             API.
         api_swagger_ui: Serve the Swagger UI of the permissions API.
@@ -1218,6 +1335,7 @@ class AccessControlConfig(FOCABaseConfig):
     enabled: bool = False
     api_enabled: bool = True
     api_base_path: str = "/admin/access-control"
+    api_refused_rules: RefusedRulesConfig = Field(default_factory=RefusedRulesConfig)
     api_specs: str | None = None
     api_swagger_ui: bool = False
     api_serve_spec: bool = False
@@ -2526,6 +2644,7 @@ class SecurityConfig(FOCABaseConfig):
                         access_control.api_base_path
                         != AccessControlConfig.model_fields["api_base_path"].default,
                     ),
+                    ("api_refused_rules", access_control.api_refused_rules.has_rules),
                     ("policies", access_control.policies),
                     ("policies_revision", access_control.policies_revision is not None),
                     ("policies_force", access_control.policies_force),

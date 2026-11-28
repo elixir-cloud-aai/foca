@@ -15,7 +15,12 @@ from werkzeug.exceptions import Conflict, NotFound
 
 from foca.config.access import _get_app_config, _set_app_config
 from foca.errors import InvalidFieldsProblem
-from foca.models.config import AccessControlConfig, Config, MongoConfig
+from foca.models.config import (
+    AccessControlConfig,
+    Config,
+    MongoConfig,
+    RefusedRulesConfig,
+)
 from foca.security.access_control import access_control_server as module
 from foca.security.access_control.access_control_server import (
     deletePermission,
@@ -717,6 +722,109 @@ class TestInvalidFields:
         with request_context(app=app), pytest.raises(InvalidFieldsProblem) as exc:
             unwrap(postPermission)(body=body)
         self._assert_field(exc.value, "#/rule/v1", "opt-in-role")
+
+    @pytest.mark.parametrize(
+        "payload,pointer,code",
+        [
+            (
+                {"policy_type": "g", "rule": {"v0": "user:s3cr3t", "v1": "x"}},
+                "#/policy_type",
+                "refused-policy-type",
+            ),
+            (
+                {"policy_type": "g", "rule": {"v0": "user:a", "v1": "s3cr3t"}},
+                "#/rule/v1",
+                "refused-role",
+            ),
+            (
+                {
+                    "policy_type": "p",
+                    "rule": {"v0": "user:a", "v1": "/s3cr3t/1", "v2": "GET"},
+                },
+                "#/rule/v1",
+                "refused-path",
+            ),
+        ],
+    )
+    @pytest.mark.parametrize("method", ["post", "put"])
+    def test_refused(
+        self,
+        app: Flask,
+        collection: Collection[dict[str, Any]],
+        method: str,
+        payload: dict[str, Any],
+        pointer: str,
+        code: str,
+    ) -> None:
+        """Rules refused via `api_refused_rules` are reported at the field."""
+        _get_app_config(
+            app
+        ).security.access_control.api_refused_rules = RefusedRulesConfig(
+            policy_types=["g"] if code == "refused-policy-type" else [],
+            roles=["s3cr3t"],
+            paths=["/s3cr3t/*"],
+        )
+        with request_context(app=app), pytest.raises(InvalidFieldsProblem) as exc:
+            if method == "post":
+                unwrap(postPermission)(body=deepcopy(payload))
+            else:
+                unwrap(putPermission)(id=MOCK_ID, body=deepcopy(payload))
+        self._assert_field(exc.value, pointer, code)
+        assert collection.count_documents({}) == 0
+
+    def test_refused_inherited_role(
+        self, app: Flask, collection: Collection[dict[str, Any]]
+    ) -> None:
+        """Role rules granting roles that inherit refused roles are refused."""
+        _get_app_config(
+            app
+        ).security.access_control.api_refused_rules = RefusedRulesConfig(
+            roles=["s3cr3t"]
+        )
+        collection.insert_many(
+            [
+                # a chain to the refused role
+                {"ptype": "g", "v0": "team", "v1": "team-lead", "id": "aaaaaa"},
+                {"ptype": "g", "v0": "team-lead", "v1": "s3cr3t", "id": "bbbbbb"},
+                # not a string
+                {"ptype": "g", "v0": "other", "v1": 1, "id": "cccccc"},
+                # configured, but of a generation not in effect
+                {
+                    "ptype": "g",
+                    "v0": "stale",
+                    "v1": "s3cr3t",
+                    "id": "dddddd",
+                    "configured": True,
+                    "generations": ["old"],
+                },
+                # another policy type
+                {"ptype": "g2", "v0": "g2-role", "v1": "s3cr3t", "id": "eeeeee"},
+            ]
+        )
+        for role in ["team", "team-lead"]:
+            body = {"policy_type": "g", "rule": {"v0": "user:a", "v1": role}}
+            with request_context(app=app), pytest.raises(InvalidFieldsProblem) as exc:
+                unwrap(postPermission)(body=body)
+            self._assert_field(exc.value, "#/rule/v1", "refused-role")
+        for role in ["other", "stale", "g2-role"]:
+            body = {"policy_type": "g", "rule": {"v0": "user:a", "v1": role}}
+            with request_context(app=app):
+                unwrap(postPermission)(body=body)
+
+    def test_not_refused(
+        self, app: Flask, collection: Collection[dict[str, Any]]
+    ) -> None:
+        """Other rules are stored, as without `api_refused_rules`."""
+        _get_app_config(
+            app
+        ).security.access_control.api_refused_rules = RefusedRulesConfig(
+            policy_types=["g"], roles=["x"], paths=["/x/*"]
+        )
+        body = {"policy_type": "p", "rule": {"v0": "x", "v1": "/x", "v2": "GET"}}
+        with request_context(app=app):
+            id = unwrap(postPermission)(body=deepcopy(body))
+            assert unwrap(putPermission)(id=MOCK_ID, body=deepcopy(body)) == MOCK_ID
+        assert collection.count_documents({"id": {"$in": [id, MOCK_ID]}}) == 2
 
     @pytest.mark.parametrize(
         "id,code", [("mock", "invalid-length"), ("mock-1", "invalid-character")]

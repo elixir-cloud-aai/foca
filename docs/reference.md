@@ -81,6 +81,15 @@ configuration models, see [Configuration](configuration/index.md).
         - putGroupRole
         - deleteGroupRole
 
+::: foca.security.access_control.refused_rules
+    options:
+      members:
+        - check_refused
+        - expand_refused_paths
+        - may_apply_to
+        - path_fields
+        - validate_refused_path
+
 ::: foca.security.access_control.foca_casbin_adapter.adapter
     options:
       members:

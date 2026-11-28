@@ -1230,8 +1230,16 @@ security:
 
 Write access to the permissions API amounts to all rights, as whoever has it can
 grant themselves any role, and read access shows who has which role on which
-resource. So keep write access to a separate, trusted role, or set
+resource. So keep write access to a separate, trusted role, limit what it can
+write with [`api_refused_rules`](#refusing-rules-in-the-api), or set
 [`api_enabled: false`](#configuring-the-api) and manage rules in the configuration.
+
+For resources with personal data (e.g., tasks or datasets that only their owners
+may see, admins included), use `granted_rights_model.conf`, and either turn the
+permissions API off or refuse in it the rules that would grant access to such
+resources: resource-scoped roles (`g2`), the roles that have rights on them (e.g.,
+`owner` and `maintainer`, which `g` rules could otherwise grant on all resources)
+and their paths (see [Refusing rules in the API](#refusing-rules-in-the-api)).
 
 `is_admin()` is then always `False`, so that the helpers treat admins as anyone else:
 `resource_filter()` limits them to resources they have roles on, and they can't
@@ -1678,6 +1686,98 @@ access control database.
 
 > If you provide custom `api_specs` for the permissions API, make sure that
 > they require authentication; otherwise, all requests will be denied.
+
+### Refusing rules in the API
+
+Whoever may write rules via the permissions API can grant themselves any role on
+any resource. If nobody should be able to, e.g., because resources hold
+personal data that only their owners may see, admins included, refuse such rules
+in the API with `api_refused_rules`:
+
+```yaml
+security:
+  access_control:
+    model: foca:granted_rights_model.conf
+    api_refused_rules:
+      # no resource-scoped roles via the API
+      policy_types: [g2]
+      # no `g` rules making anyone owner or maintainer of all resources
+      roles: [owner, maintainer]
+      # no rules for the tasks or their sub-paths and custom methods
+      paths: ["{base_path}/tasks/*"]
+    policies:
+      - [p, "*", "{base_path}/tasks", "(GET)|(POST)"]
+      - [p, owner, "{base_path}/tasks/:id", "(GET)|(DELETE)"]
+      - [p, owner, "{base_path}/tasks/:id/*", GET]
+      - [p, admin, "/admin/access-control/*", "(GET)|(POST)|(PUT)|(DELETE)"]
+```
+
+The API then responds to `POST /permissions` and `PUT /permissions/{id}` with
+`400` for rules
+
+- of a refused policy type (`policy_types`, code `refused-policy-type`, at
+  `#/policy_type`),
+- of a role rule (policy types `g*`) that grants a refused role (`roles`, code
+  `refused-role`, at `#/rule/v1`), to a subject or to another role, or that
+  grants a subject or role inheriting a refused role via rules in effect of the
+  same policy type, configured or stored (e.g., `team-lead` with `[g, team-lead,
+  owner]`), as many levels deep as the enforcer follows, or
+- with a path that may apply to a refused path (`paths`, code `refused-path`, at
+  the value, e.g., `#/rule/v1`).
+
+By default, nothing is refused. Refused rules can still be set via
+[`policies`](#configuring-policies), and the [resource
+ownership](#resource-ownership) helpers, and with them the [endpoints for managing
+roles](#endpoints-for-managing-roles), still grant and revoke roles. Rules that are
+already stored stay in effect; find them via [`GET
+/permissions`](#listing-permissions) and delete those you don't want anymore.
+Deleting rules via the API is never refused.
+
+Refused paths are full request paths, written as `keyMatch2` patterns: `:name`
+matches one segment (e.g., `/tasks/:id` matches `/tasks/1` and `/tasks/1:cancel`,
+but not `/tasks/1/logs`), `*` any characters, also `/` (e.g., `/tasks/*` matches
+all paths below `/tasks/`, but not `/tasks`; only after `/`, as `keyMatch2`
+reads it as a quantifier elsewhere), `.` any character (as `keyMatch2` reads
+it), and other characters themselves. A
+path may start with the placeholder `{base_path}`, which is replaced by the base
+path of each of the app's APIs, as in [`policies`](#configuring-policies). Other
+characters of regular expressions (e.g., `(`, `[`, `+`, `?`), commas and
+whitespace are rejected.
+
+The paths of a rule are the values of the fields named `obj` of policy
+definitions (e.g., `v1` of `p = sub, obj, act`), and the resources of role
+definitions with three fields (e.g., `v2` of `g2 = _, _, _`), as in the models
+that FOCA ships. A rule is refused if one of its paths may apply to a request
+path that a refused path matches. Values of rules are patterns of the model's
+matchers, so they are read generously, as any of `keyMatch`, `keyMatch2`,
+`keyMatch3` and regular expressions would read them: `*`, `?`, `+` and `{...}`
+match any characters, `.` any character, and values with groups, character
+classes, alternatives, escapes or anchors any path. Resources of roles also cover
+their sub-paths and custom methods. So with the paths above, rules for
+`{base_path}/tasks/:id`, `{base_path}/*`, `*` or `.*`, and roles on
+`{base_path}/tasks/1` or `{base_path}` are refused, but rules for
+`{base_path}/tasks` (the list) or `{base_path}/service-info` are not. Some rules
+that don't apply to a refused path may be refused, too (e.g.,
+`{base_path}/task*`, which may match `{base_path}/tasks/1` with `keyMatch`), but
+none that do.
+
+Models that keep paths in other fields (e.g., object groupings such as `g2 = _, _`
+of `default_model.conf`, which map paths to groups that `p` rules then name) or
+grant rights in other ways aren't covered by `paths`: refuse their policy types or
+roles instead. So are models that match paths with `regexMatch`, which
+matches values as prefixes of request paths unless they end in `$`. The app
+warns on startup if the model has no fields that are
+paths but `paths` is set, and of refused policy types that the model doesn't
+define. Roles that have rights on refused paths via `policies` (e.g., `owner`
+above) belong in `roles`, as a `g` rule granting them would grant those rights on
+all resources.
+
+Inherited roles are checked against the rules in effect when a rule is written.
+Links added later (e.g., a new configured rule `[g, team-lead, owner]`) aren't
+checked against rules stored before, as with rules stored before the setting:
+review those when you change `policies`. Links of resource-scoped roles count on
+all resources, so a role that inherits a refused role on one resource can't be
+granted via the API on any.
 
 ### Listing permissions
 

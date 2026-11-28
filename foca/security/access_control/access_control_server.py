@@ -10,6 +10,7 @@ from typing import Any, NoReturn
 
 from casbin.model import Model
 from flask import current_app
+from pymongo import ReadPreference
 from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError
 
@@ -34,7 +35,12 @@ from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     InvalidRuleError,
     validate_rule,
 )
+from foca.security.access_control.refused_rules import (
+    check_refused,
+    expand_refused_paths,
+)
 from foca.utils.logging import escape_log_value, log_traffic_if
+from foca.utils.urls import _get_api_base_paths
 
 logger = logging.getLogger(__name__)
 
@@ -233,9 +239,11 @@ def _get_rule(body: Any) -> tuple[str, list[str]]:
             for the app's access control model (cf.
             :py:func:`validate_rule`), e.g., because the policy type is not
             defined in the model, the rule has keys other than `v0` to `v5`
-            or values are missing, or it is a role rule that grants an
-            opt-in role (cf. :py:func:`grants_opt_in_role`); names the
-            invalid field, with a code, but not its value.
+            or values are missing, it is a role rule that grants an
+            opt-in role (cf. :py:func:`grants_opt_in_role`), or it is refused
+            via `access_control.api_refused_rules` (cf.
+            :py:func:`~foca.security.access_control.refused_rules.check_refused`);
+            names the invalid field, with a code, but not its value.
     """
     if not isinstance(body, dict):
         logger.error("Invalid request payload.")
@@ -274,6 +282,7 @@ def _get_rule(body: Any) -> tuple[str, list[str]]:
                 ),
                 field=1,
             )
+        _check_refused(str(ptype), values, model)
     except InvalidRuleError as exc:
         # Messages quote the client's values, so they are logged at DEBUG
         # only, and not chained into the traceback that may be logged; the
@@ -285,6 +294,61 @@ def _get_rule(body: Any) -> tuple[str, list[str]]:
             reason, exc.code, pointer=_rule_field_pointer(exc.field)
         ) from None
     return str(ptype), values
+
+
+def _check_refused(ptype: str, values: list[str], model: Model) -> None:
+    """Refuse rules that the app's configuration refuses in the API.
+
+    Args:
+        ptype: Policy type of a valid rule.
+        values: Values of the rule.
+        model: Access control model of the app.
+
+    Role rules are also refused if they grant a subject or role that inherits a
+    refused role via the stored rules in effect of the same policy type.
+
+    Raises:
+        InvalidRuleError: The rule is refused via
+            `access_control.api_refused_rules` (cf.
+            :py:func:`~foca.security.access_control.refused_rules.check_refused`).
+    """
+    refused = get_config().security.access_control.api_refused_rules
+    check_refused(
+        ptype,
+        values,
+        model,
+        policy_types=refused.policy_types,
+        roles=refused.roles,
+        paths=expand_refused_paths(refused.paths, _get_api_base_paths(current_app)),
+        get_roles=lambda subjects: _get_granted_roles(ptype, subjects),
+    )
+
+
+def _get_granted_roles(ptype: str, subjects: set[str]) -> set[str]:
+    """Get the roles that subjects or roles get via stored rules in effect.
+
+    Args:
+        ptype: Policy type of role rules (e.g., `g`).
+        subjects: Subjects or roles (`v0` of the rules).
+
+    Returns:
+        Roles (`v1`) of the rules of the policy type in effect (configured rules
+        of the active generation, and others) for the subjects; values that
+        aren't strings are left out, as the enforcer skips such rules. Read
+        from the primary, so that rules just written count.
+    """
+    collection = _get_permissions_collection().with_options(
+        read_preference=ReadPreference.PRIMARY
+    )
+    rules = collection.find(
+        {
+            "ptype": ptype,
+            "v0": {"$in": sorted(subjects)},
+            **current_app.config["casbin_adapter"].rules_query(),
+        },
+        projection={"_id": False, "v1": True},
+    )
+    return {rule["v1"] for rule in rules if isinstance(rule.get("v1"), str)}
 
 
 def _check_not_configured(id: str) -> None:
