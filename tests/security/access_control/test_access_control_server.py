@@ -783,17 +783,33 @@ class TestInvalidFields:
         )
         collection.insert_many(
             [
-                {"ptype": "g", "v0": "team-lead", "v1": "s3cr3t", "id": "aaaaaa"},
-                {"ptype": "g", "v0": "other", "v1": 1, "id": "bbbbbb"},
+                # a chain to the refused role
+                {"ptype": "g", "v0": "team", "v1": "team-lead", "id": "aaaaaa"},
+                {"ptype": "g", "v0": "team-lead", "v1": "s3cr3t", "id": "bbbbbb"},
+                # not a string
+                {"ptype": "g", "v0": "other", "v1": 1, "id": "cccccc"},
+                # configured, but of a generation not in effect
+                {
+                    "ptype": "g",
+                    "v0": "stale",
+                    "v1": "s3cr3t",
+                    "id": "dddddd",
+                    "configured": True,
+                    "generations": ["old"],
+                },
+                # another policy type
+                {"ptype": "g2", "v0": "g2-role", "v1": "s3cr3t", "id": "eeeeee"},
             ]
         )
-        body = {"policy_type": "g", "rule": {"v0": "user:a", "v1": "team-lead"}}
-        with request_context(app=app), pytest.raises(InvalidFieldsProblem) as exc:
-            unwrap(postPermission)(body=body)
-        self._assert_field(exc.value, "#/rule/v1", "refused-role")
-        body = {"policy_type": "g", "rule": {"v0": "user:a", "v1": "other"}}
-        with request_context(app=app):
-            unwrap(postPermission)(body=body)
+        for role in ["team", "team-lead"]:
+            body = {"policy_type": "g", "rule": {"v0": "user:a", "v1": role}}
+            with request_context(app=app), pytest.raises(InvalidFieldsProblem) as exc:
+                unwrap(postPermission)(body=body)
+            self._assert_field(exc.value, "#/rule/v1", "refused-role")
+        for role in ["other", "stale", "g2-role"]:
+            body = {"policy_type": "g", "rule": {"v0": "user:a", "v1": role}}
+            with request_context(app=app):
+                unwrap(postPermission)(body=body)
 
     def test_not_refused(
         self, app: Flask, collection: Collection[dict[str, Any]]

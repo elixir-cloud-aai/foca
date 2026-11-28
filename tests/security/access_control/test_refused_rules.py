@@ -1,6 +1,7 @@
 """Unit tests for the rules that the permissions API refuses."""
 
 from importlib.resources import as_file, files
+from typing import Any, ClassVar
 
 import pytest
 from casbin.model import Model
@@ -18,7 +19,7 @@ from foca.security.access_control.refused_rules import (
     _parse_value,
     check_refused,
     expand_refused_paths,
-    inheriting_roles,
+    inherits_role,
     may_apply_to,
     path_fields,
     validate_refused_path,
@@ -212,31 +213,43 @@ class TestRunsOfAnyCharacters:
         assert _parse_value(value) == [_ANY_CHARS_ITEM]
 
     def test_long_value_without_overlap(self) -> None:
-        """Long values that don't overlap are decided, too."""
+        """Long values that don't overlap are decided, too.
+
+        Guards against the overlap check taking seconds for such values, as it
+        did before runs of any characters were merged.
+        """
         value = "/" + ".*" * 511 + "/"
         assert may_apply_to(value, "/ga4gh/tes/v1/tasks/:id") is False
 
 
-class TestInheritingRoles:
-    """Tests for finding the roles that inherit refused roles."""
+class TestInheritsRole:
+    """Tests for checking whether subjects or roles inherit roles."""
 
-    def test_inheriting(self) -> None:
-        """Subjects and roles inheriting roles directly or indirectly count."""
-        links = [
-            ["team-lead", "owner"],
-            ["user:alice", "team-lead", "/tasks/1"],
-            ["user:bob", "admin"],
-            ["orphan"],
-        ]
-        assert inheriting_roles(["owner"], links) == {
-            "owner",
-            "team-lead",
-            "user:alice",
-        }
+    LINKS: ClassVar[dict[str, set[str]]] = {
+        "user:alice": {"team-lead"},
+        "team-lead": {"lead"},
+        "lead": {"owner", "team-lead"},
+        "user:bob": {"admin"},
+    }
 
-    def test_none(self) -> None:
-        """Without links, only the roles count."""
-        assert inheriting_roles(["owner"], []) == {"owner"}
+    def _get_roles(self, subjects: set[str]) -> set[str]:
+        """Get the roles that subjects get directly.
+
+        Args:
+            subjects: Subjects or roles.
+
+        Returns:
+            Their roles.
+        """
+        return set().union(*(self.LINKS.get(subject, set()) for subject in subjects))
+
+    @pytest.mark.parametrize(
+        "role,expected",
+        [("user:alice", True), ("team-lead", True), ("user:bob", False), ("x", False)],
+    )
+    def test_inherits(self, role: str, expected: bool) -> None:
+        """Roles are inherited via chains, which may have cycles."""
+        assert inherits_role(role, ["owner"], self._get_roles) is expected
 
 
 class TestPathFields:
@@ -333,7 +346,7 @@ class TestCheckRefused:
         model: Model,
         ptype: str,
         values: list[str],
-        options: dict[str, list[str]],
+        options: dict[str, Any],
         code: str,
         field: str | int,
     ) -> None:
@@ -342,3 +355,21 @@ class TestCheckRefused:
             check_refused(ptype, values, model, **options)
         assert (exc.value.code, exc.value.field) == (code, field)
         assert not any(value in exc.value.reason for value in values[1:])
+
+    @pytest.mark.parametrize(
+        "options",
+        [{"policy_types": ["g"], "roles": ["owner"]}, {"roles": []}],
+    )
+    def test_roles_not_looked_up(self, model: Model, options: dict[str, Any]) -> None:
+        """Inherited roles aren't looked up for rules refused before or no roles."""
+
+        def get_roles(subjects: set[str]) -> set[str]:
+            """Fail, as the roles must not be looked up."""
+            raise AssertionError(subjects)
+
+        try:
+            check_refused(
+                "g", ["user:alice", "team"], model, get_roles=get_roles, **options
+            )
+        except InvalidRuleError as exc:
+            assert exc.code == "refused-policy-type"

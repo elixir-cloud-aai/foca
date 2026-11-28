@@ -63,8 +63,8 @@ caller](../access-control.md#the-current-caller)).
 permissions API refuses to create or update (`400`), e.g., so that admins can't
 grant themselves access to the resources of others; by default, none (cf.
 [Refusing rules in the API](../access-control.md#refusing-rules-in-the-api)).
-Paths are `keyMatch2` patterns of full request paths and may start with
-`{base_path}`; the app refuses to start (`ValueError`) if one does but the app
+Paths are `keyMatch2` patterns of full request paths (`*` only after `/`)
+and may start with `{base_path}`; the app refuses to start (`ValueError`) if one does but the app
 has no API. Warnings are logged for refused policy types that the model doesn't
 define, for refused paths if the model has no fields that are paths, and, without
 the API (`api_enabled: false`), for the setting, which then has no effect.

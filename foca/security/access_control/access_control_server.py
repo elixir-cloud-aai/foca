@@ -37,7 +37,6 @@ from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
 from foca.security.access_control.refused_rules import (
     check_refused,
     expand_refused_paths,
-    inheriting_roles,
 )
 from foca.utils.logging import escape_log_value, log_traffic_if
 from foca.utils.urls import _get_api_base_paths
@@ -313,32 +312,38 @@ def _check_refused(ptype: str, values: list[str], model: Model) -> None:
             :py:func:`~foca.security.access_control.refused_rules.check_refused`).
     """
     refused = get_config().security.access_control.api_refused_rules
-    roles: set[str] = set()
-    if refused.roles and ptype.startswith("g"):
-        # Roles inheriting refused roles via rules in effect, configured or not
-        links = _get_permissions_collection().find(
-            {
-                "ptype": ptype,
-                **current_app.config["casbin_adapter"].rules_query(),
-            },
-            projection={"_id": False, "v0": True, "v1": True},
-        )
-        roles = inheriting_roles(
-            refused.roles,
-            (
-                [link["v0"], link["v1"]]
-                for link in links
-                if isinstance(link.get("v0"), str) and isinstance(link.get("v1"), str)
-            ),
-        )
     check_refused(
         ptype,
         values,
         model,
         policy_types=refused.policy_types,
-        roles=roles,
+        roles=refused.roles,
         paths=expand_refused_paths(refused.paths, _get_api_base_paths(current_app)),
+        get_roles=lambda subjects: _get_granted_roles(ptype, subjects),
     )
+
+
+def _get_granted_roles(ptype: str, subjects: set[str]) -> set[str]:
+    """Get the roles that subjects or roles get via stored rules in effect.
+
+    Args:
+        ptype: Policy type of role rules (e.g., `g`).
+        subjects: Subjects or roles (`v0` of the rules).
+
+    Returns:
+        Roles (`v1`) of the rules of the policy type in effect (configured rules
+        of the active generation, and others) for the subjects; values that
+        aren't strings are left out, as the enforcer skips such rules.
+    """
+    rules = _get_permissions_collection().find(
+        {
+            "ptype": ptype,
+            "v0": {"$in": sorted(subjects)},
+            **current_app.config["casbin_adapter"].rules_query(),
+        },
+        projection={"_id": False, "v1": True},
+    )
+    return {rule["v1"] for rule in rules if isinstance(rule.get("v1"), str)}
 
 
 def _check_not_configured(id: str) -> None:

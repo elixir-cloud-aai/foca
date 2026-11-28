@@ -1003,7 +1003,8 @@ class RefusedRulesConfig(FOCABaseConfig):
             them via rules in effect of the same policy type (e.g., `team-lead`
             with `[g, team-lead, owner]`).
         paths: Paths for which no rules can be written, as `keyMatch2` patterns
-            of full request paths (`*` matches any characters, also `/`;
+            of full request paths (`*`, only after `/`, matches any
+            characters, also `/`;
             `:name` one segment, e.g., `/ga4gh/tes/v1/tasks/*`). They may start
             with the placeholder `{base_path}`, which is replaced by the base
             path of each of the app's APIs. Rules are refused if a value that

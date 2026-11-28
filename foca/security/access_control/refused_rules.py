@@ -17,9 +17,9 @@ that does.
 """
 
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Collection, Iterable, Sequence
 from dataclasses import dataclass
-from functools import lru_cache
+from functools import cache
 
 from casbin.model import Model
 
@@ -343,9 +343,13 @@ def _overlap(first: _Automaton, second: _Automaton) -> bool:
     return False
 
 
-@lru_cache(maxsize=256)
+@cache
 def _refused_automaton(refused_path: str) -> _Automaton:
     """Get the automaton of a refused path, built once per path.
+
+    The paths are those of the configuration, so the cache stays small. The
+    automaton is shared by requests; it only caches closures, which are the same
+    whoever computes them first.
 
     Args:
         refused_path: Refused path, without the placeholder `{base_path}`.
@@ -401,30 +405,33 @@ def path_fields(ptype: str, model: Model) -> list[tuple[int, bool]]:
     return [(2, True)] if len(tokens) == 3 else []
 
 
-def inheriting_roles(roles: Iterable[str], links: Iterable[Sequence[str]]) -> set[str]:
-    """Get roles and the subjects and roles that inherit them.
+def inherits_role(
+    role: str,
+    roles: Collection[str],
+    get_roles: Callable[[set[str]], Iterable[str]],
+) -> bool:
+    """Check whether a subject or role inherits one of some roles.
 
     Args:
-        roles: Roles.
-        links: Values of role rules (e.g., `["team-lead", "owner"]`): a subject or
-            role, followed by the role it gets.
+        role: Subject or role (e.g., `team-lead`).
+        roles: Roles (e.g., `owner`).
+        get_roles: Function getting the roles that subjects or roles get
+            directly (e.g., `owner` for `team-lead` with `[g, team-lead,
+            owner]`).
 
     Returns:
-        The roles, and the subjects and roles that get one of them via the links,
-        directly or via other roles (e.g., `team-lead` for `owner`). Values
-        after the second (e.g., resources) are ignored, so that roles count as
-        inherited on all resources.
+        Whether it gets one of `roles` via other roles, directly or not; the
+        roles are looked up level by level, each once, so that cycles end.
     """
-    inheriting = set(roles)
-    edges = [(link[0], link[1]) for link in links if len(link) >= 2]
-    added = True
-    while added:
-        added = False
-        for subject, role in edges:
-            if role in inheriting and subject not in inheriting:
-                inheriting.add(subject)
-                added = True
-    return inheriting
+    seen = {role}
+    pending = {role}
+    while pending:
+        found = set(get_roles(pending)) - seen
+        if found & set(roles):
+            return True
+        seen |= found
+        pending = found
+    return False
 
 
 def check_refused(
@@ -432,9 +439,10 @@ def check_refused(
     values: list[str],
     model: Model,
     *,
-    policy_types: Iterable[str] = (),
-    roles: Iterable[str] = (),
+    policy_types: Collection[str] = (),
+    roles: Collection[str] = (),
     paths: Iterable[str] = (),
+    get_roles: Callable[[set[str]], Iterable[str]] | None = None,
 ) -> None:
     """Refuse a rule of a policy type, role or path that is refused.
 
@@ -444,13 +452,18 @@ def check_refused(
         model: Casbin model.
         policy_types: Refused policy types.
         roles: Roles that role rules (policy types `g*`) must not grant,
-            including those that inherit refused roles (cf.
-            :py:func:`inheriting_roles`).
+            also via subjects or roles that inherit them.
         paths: Refused paths, without the placeholder `{base_path}`.
+        get_roles: Function getting the roles that subjects or roles get
+            directly via rules of the policy type (cf.
+            :py:func:`inherits_role`); if `None`, only the roles themselves
+            are refused. Called only if the rule is not refused otherwise
+            before, as it may have to read stored rules.
 
     Raises:
         InvalidRuleError: The policy type is refused (`refused-policy-type`), the
-            rule is a role rule granting one of `roles` (`refused-role`), or a
+            rule is a role rule granting one of `roles` or a subject or role
+            inheriting one (`refused-role`), or a
             value that is a path (cf. :py:func:`path_fields`) may apply to a
             path that a refused path matches (`refused-path`, cf.
             :py:func:`may_apply_to`).
@@ -462,7 +475,15 @@ def check_refused(
             reason="Rules of this policy type can't be written via the API",
             field="policy_type",
         )
-    if ptype.startswith("g") and len(values) >= 2 and values[1] in roles:
+    if (
+        ptype.startswith("g")
+        and len(values) >= 2
+        and roles
+        and (
+            values[1] in roles
+            or (get_roles is not None and inherits_role(values[1], roles, get_roles))
+        )
+    ):
         raise InvalidRuleError(
             f"Role rules granting {values[1]!r} can't be written via the API",
             code="refused-role",
