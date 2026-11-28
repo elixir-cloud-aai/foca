@@ -19,6 +19,7 @@ that does.
 import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from functools import lru_cache
 
 from casbin.model import Model
 
@@ -74,7 +75,8 @@ def validate_refused_path(path: str) -> str:
         ValueError: The path is not absolute (optionally after the placeholder
             `{base_path}` at its start), has the placeholder elsewhere, or has
             characters of regular expressions other than those of `keyMatch2`
-            patterns (`*`, `:name`), commas or whitespace.
+            patterns (`*`, `:name`), commas or whitespace, or a `*` that
+            doesn't follow `/` (which `keyMatch2` reads as a quantifier).
     """
     rest = path.removeprefix(BASE_PATH_PLACEHOLDER)
     if not (rest.startswith("/") or (rest == "" and path)):
@@ -90,6 +92,10 @@ def validate_refused_path(path: str) -> str:
         raise ValueError(
             "Refused paths are 'keyMatch2' patterns ('*' and ':name') without "
             f"other characters of regular expressions, commas or whitespace: {path!r}"
+        )
+    if re.search(r"(?<!/)\*", rest):
+        raise ValueError(
+            f"Refused paths may only have '*' after '/' (e.g., '/tasks/*'): {path!r}"
         )
     return path
 
@@ -163,14 +169,22 @@ def _parse(pattern: str, generous: bool) -> list[_Item]:
         Items of the pattern.
     """
     items: list[_Item] = []
+
+    def add_any_chars() -> None:
+        """Add any characters, unless the last item already is."""
+        if not items or items[-1] != _ANY_CHARS_ITEM:
+            items.append(_ANY_CHARS_ITEM)
+
     index = 0
     while index < len(pattern):
         char = pattern[index]
         segment = _PARAMETER.match(pattern, index)
         if segment is not None:
             end = segment.end()
-            wild = generous and bool(set(pattern[index:end]) & set("*.+?{"))
-            items.append(_ANY_CHARS_ITEM if wild else _Item(_SEGMENT))
+            if generous and set(pattern[index:end]) & set("*.+?{"):
+                add_any_chars()
+            else:
+                items.append(_Item(_SEGMENT))
             index = end
             continue
         if char == "*" or (generous and char in "?{"):
@@ -179,9 +193,9 @@ def _parse(pattern: str, generous: bool) -> list[_Item]:
             if char == "{":
                 end = pattern.find("}", index)
                 index = len(pattern) if end < 0 else end
-            items.append(_ANY_CHARS_ITEM)
+            add_any_chars()
         elif generous and char == "+":
-            items.append(_ANY_CHARS_ITEM)
+            add_any_chars()
         elif generous and char == ".":
             items.append(_Item(_ANY_CHAR))
         else:
@@ -209,6 +223,7 @@ class _Automaton:
         """Build the automaton."""
         self.edges: dict[int, list[tuple[str, int]]] = {}
         self.epsilon: dict[int, list[int]] = {}
+        self._closures: dict[int, frozenset[int]] = {}
         self._states = 1
         state = 0
         for item in items:
@@ -255,15 +270,17 @@ class _Automaton:
         """
         self.edges.setdefault(state, []).append((label, following))
 
-    def closure(self, state: int) -> set[int]:
+    def closure(self, state: int) -> frozenset[int]:
         """Get the states reachable from a state without consuming characters.
 
         Args:
             state: State.
 
         Returns:
-            The state and those reachable from it.
+            The state and those reachable from it; computed once per state.
         """
+        if state in self._closures:
+            return self._closures[state]
         states = {state}
         pending = [state]
         while pending:
@@ -271,7 +288,8 @@ class _Automaton:
                 if following not in states:
                     states.add(following)
                     pending.append(following)
-        return states
+        self._closures[state] = frozenset(states)
+        return self._closures[state]
 
 
 def _labels_overlap(first: str, second: str) -> bool:
@@ -325,6 +343,19 @@ def _overlap(first: _Automaton, second: _Automaton) -> bool:
     return False
 
 
+@lru_cache(maxsize=256)
+def _refused_automaton(refused_path: str) -> _Automaton:
+    """Get the automaton of a refused path, built once per path.
+
+    Args:
+        refused_path: Refused path, without the placeholder `{base_path}`.
+
+    Returns:
+        Automaton accepting the request paths that it matches.
+    """
+    return _Automaton(_parse_refused_path(refused_path))
+
+
 def may_apply_to(value: str, refused_path: str, within: bool = False) -> bool:
     """Check whether a value of a rule may apply to paths of a refused path.
 
@@ -343,7 +374,7 @@ def may_apply_to(value: str, refused_path: str, within: bool = False) -> bool:
         value = value.rstrip("/")
     return _overlap(
         _Automaton(_parse_value(value), within=within),
-        _Automaton(_parse_refused_path(refused_path)),
+        _refused_automaton(refused_path),
     )
 
 
@@ -370,6 +401,32 @@ def path_fields(ptype: str, model: Model) -> list[tuple[int, bool]]:
     return [(2, True)] if len(tokens) == 3 else []
 
 
+def inheriting_roles(roles: Iterable[str], links: Iterable[Sequence[str]]) -> set[str]:
+    """Get roles and the subjects and roles that inherit them.
+
+    Args:
+        roles: Roles.
+        links: Values of role rules (e.g., `["team-lead", "owner"]`): a subject or
+            role, followed by the role it gets.
+
+    Returns:
+        The roles, and the subjects and roles that get one of them via the links,
+        directly or via other roles (e.g., `team-lead` for `owner`). Values
+        after the second (e.g., resources) are ignored, so that roles count as
+        inherited on all resources.
+    """
+    inheriting = set(roles)
+    edges = [(link[0], link[1]) for link in links if len(link) >= 2]
+    added = True
+    while added:
+        added = False
+        for subject, role in edges:
+            if role in inheriting and subject not in inheriting:
+                inheriting.add(subject)
+                added = True
+    return inheriting
+
+
 def check_refused(
     ptype: str,
     values: list[str],
@@ -386,12 +443,14 @@ def check_refused(
         values: Values of the rule, valid for the policy type.
         model: Casbin model.
         policy_types: Refused policy types.
-        roles: Roles that role rules (policy types `g*`) must not grant.
+        roles: Roles that role rules (policy types `g*`) must not grant,
+            including those that inherit refused roles (cf.
+            :py:func:`inheriting_roles`).
         paths: Refused paths, without the placeholder `{base_path}`.
 
     Raises:
         InvalidRuleError: The policy type is refused (`refused-policy-type`), the
-            rule is a role rule granting a refused role (`refused-role`), or a
+            rule is a role rule granting one of `roles` (`refused-role`), or a
             value that is a path (cf. :py:func:`path_fields`) may apply to a
             path that a refused path matches (`refused-path`, cf.
             :py:func:`may_apply_to`).

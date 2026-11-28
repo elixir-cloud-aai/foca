@@ -1269,7 +1269,7 @@ def test_RefusedRulesConfig_defaults() -> None:
     """By default, the permissions API refuses no rules."""
     refused = AccessControlConfig().api_refused_rules
     assert refused == RefusedRulesConfig()
-    assert refused.any is False
+    assert refused.has_rules is False
     assert SecurityConfig(access_control=AccessControlConfig())
 
 
@@ -1280,7 +1280,7 @@ def test_RefusedRulesConfig_defaults() -> None:
 def test_RefusedRulesConfig_valid(options: dict[str, list[str]]) -> None:
     """Each kind of refused rules counts, and needs access control."""
     refused = RefusedRulesConfig(**options)
-    assert refused.any is True
+    assert refused.has_rules is True
     with pytest.raises(ValidationError, match="api_refused_rules"):
         SecurityConfig(access_control=AccessControlConfig(api_refused_rules=refused))
 

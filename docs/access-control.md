@@ -1718,7 +1718,10 @@ The API then responds to `POST /permissions` and `PUT /permissions/{id}` with
 - of a refused policy type (`policy_types`, code `refused-policy-type`, at
   `#/policy_type`),
 - of a role rule (policy types `g*`) that grants a refused role (`roles`, code
-  `refused-role`, at `#/rule/v1`), to a subject or to another role, or
+  `refused-role`, at `#/rule/v1`), to a subject or to another role, or that
+  grants a subject or role inheriting a refused role via rules in effect of the
+  same policy type, configured or stored (e.g., `team-lead` with `[g, team-lead,
+  owner]`), or
 - with a path that may apply to a refused path (`paths`, code `refused-path`, at
   the value, e.g., `#/rule/v1`).
 
@@ -1733,7 +1736,8 @@ Deleting rules via the API is never refused.
 Refused paths are full request paths, written as `keyMatch2` patterns: `:name`
 matches one segment (e.g., `/tasks/:id` matches `/tasks/1` and `/tasks/1:cancel`,
 but not `/tasks/1/logs`), `*` any characters, also `/` (e.g., `/tasks/*` matches
-all paths below `/tasks/`, but not `/tasks`), and other characters themselves. A
+all paths below `/tasks/`, but not `/tasks`; only after `/`, as `keyMatch2`
+reads it as a quantifier elsewhere), and other characters themselves. A
 path may start with the placeholder `{base_path}`, which is replaced by the base
 path of each of the app's APIs, as in [`policies`](#configuring-policies). Other
 characters of regular expressions (e.g., `(`, `[`, `+`, `?`), commas and
@@ -1759,9 +1763,11 @@ none that do.
 Models that keep paths in other fields (e.g., object groupings such as `g2 = _, _`
 of `default_model.conf`, which map paths to groups that `p` rules then name) or
 grant rights in other ways aren't covered by `paths`: refuse their policy types or
-roles instead. Roles that have rights on refused paths via `policies` (e.g.,
-`owner` above) belong in `roles`, as a `g` rule granting them would grant those
-rights on all resources.
+roles instead; the app warns on startup if the model has no fields that are
+paths but `paths` is set, and of refused policy types that the model doesn't
+define. Roles that have rights on refused paths via `policies` (e.g., `owner`
+above) belong in `roles`, as a `g` rule granting them would grant those rights on
+all resources.
 
 ### Listing permissions
 

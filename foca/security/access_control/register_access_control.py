@@ -8,6 +8,7 @@ from typing import Any
 
 import pymongo
 import yaml
+from casbin.model import Model
 from casbin.util import key_match2
 from connexion import App
 from connexion.resolver import Resolver
@@ -68,6 +69,7 @@ from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
 )
 from foca.security.access_control.me import import_me_hook
 from foca.security.access_control.ownership_server import _check_routes_enforced
+from foca.security.access_control.refused_rules import path_fields
 from foca.security.auth import InvalidTokenResolver
 from foca.utils.logging import escape_log_value
 from foca.utils.urls import _get_api_base_paths, _get_apis, _register_api
@@ -860,7 +862,7 @@ def register_permission_specs(
                 "'security.access_control.self_service' has no effect, as "
                 "'security.access_control.api_enabled' is false."
             )
-        if access_control_config.api_refused_rules.any:
+        if access_control_config.api_refused_rules.has_rules:
             logger.warning(
                 "'security.access_control.api_refused_rules' has no effect, as "
                 "'security.access_control.api_enabled' is false."
@@ -1114,6 +1116,7 @@ def register_casbin_enforcer(
 
     logger.info("Setting casbin model.")
     app.app.config["CASBIN_MODEL"] = casbin_model
+    _check_refused_rules_model(access_control_config)
 
     logger.info("Setting up casbin enforcer.")
     # Same client and collection as registered for the app's databases
@@ -1134,6 +1137,35 @@ def register_casbin_enforcer(
     logger.info("Casbin enforcer registered.")
 
     return app
+
+
+def _check_refused_rules_model(access_control_config: AccessControlConfig) -> None:
+    """Warn about refused rules that the access control model makes moot.
+
+    Args:
+        access_control_config: Access control configuration, with the path of
+            the model.
+    """
+    refused = access_control_config.api_refused_rules
+    if not access_control_config.api_enabled or not refused.has_rules:
+        return
+    model = Model()
+    model.load_model(access_control_config.model)
+    defined = [ptype for section in "pg" for ptype in model.model.get(section, {})]
+    for ptype in refused.policy_types:
+        if ptype not in defined:
+            logger.warning(
+                "Policy type '%s' of 'security.access_control.api_refused_rules' "
+                "isn't defined in the access control model, so it refuses nothing.",
+                ptype,
+            )
+    if refused.paths and not any(path_fields(ptype, model) for ptype in defined):
+        logger.warning(
+            "The access control model has no fields that are paths ('obj' fields "
+            "of policy definitions, resources of role definitions with three "
+            "fields), so the paths of 'security.access_control.api_refused_rules' "
+            "refuse nothing: refuse policy types or roles instead."
+        )
 
 
 def _get_policy_options(

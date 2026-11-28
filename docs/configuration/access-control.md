@@ -65,8 +65,9 @@ grant themselves access to the resources of others; by default, none (cf.
 [Refusing rules in the API](../access-control.md#refusing-rules-in-the-api)).
 Paths are `keyMatch2` patterns of full request paths and may start with
 `{base_path}`; the app refuses to start (`ValueError`) if one does but the app
-has no API. Without the API (`api_enabled: false`), a warning is logged, as the
-setting then has no effect.
+has no API. Warnings are logged for refused policy types that the model doesn't
+define, for refused paths if the model has no fields that are paths, and, without
+the API (`api_enabled: false`), for the setting, which then has no effect.
 
 `resource_roles_cover_custom_methods` is off by default. Set to `true`, roles on a
 resource also cover its custom methods (e.g., a role on `/tasks/1` covers

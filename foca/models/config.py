@@ -999,7 +999,9 @@ class RefusedRulesConfig(FOCABaseConfig):
             `g2`, for resource-scoped roles).
         roles: Roles that role rules (policy types `g*`) can't grant, also not
             to other roles (e.g., `owner`, so that nobody can make themselves
-            owner of all resources via `g`).
+            owner of all resources via `g`), nor subjects or roles that inherit
+            them via rules in effect of the same policy type (e.g., `team-lead`
+            with `[g, team-lead, owner]`).
         paths: Paths for which no rules can be written, as `keyMatch2` patterns
             of full request paths (`*` matches any characters, also `/`;
             `:name` one segment, e.g., `/ga4gh/tes/v1/tasks/*`). They may start
@@ -1034,7 +1036,7 @@ class RefusedRulesConfig(FOCABaseConfig):
     paths: list[str] = Field(default_factory=list)
 
     @property
-    def any(self) -> bool:
+    def has_rules(self) -> bool:
         """Whether any rules are refused."""
         return bool(self.policy_types or self.roles or self.paths)
 
@@ -2641,7 +2643,7 @@ class SecurityConfig(FOCABaseConfig):
                         access_control.api_base_path
                         != AccessControlConfig.model_fields["api_base_path"].default,
                     ),
-                    ("api_refused_rules", access_control.api_refused_rules.any),
+                    ("api_refused_rules", access_control.api_refused_rules.has_rules),
                     ("policies", access_control.policies),
                     ("policies_revision", access_control.policies_revision is not None),
                     ("policies_force", access_control.policies_force),

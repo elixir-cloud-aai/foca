@@ -14,8 +14,11 @@ from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     InvalidRuleError,
 )
 from foca.security.access_control.refused_rules import (
+    _ANY_CHARS_ITEM,
+    _parse_value,
     check_refused,
     expand_refused_paths,
+    inheriting_roles,
     may_apply_to,
     path_fields,
     validate_refused_path,
@@ -76,6 +79,8 @@ class TestValidateRefusedPath:
                 (f"/tasks/{char}", "keyMatch2")
                 for char in ["(a)", "[a]", "{id}", "a|b", "\\d", "^a", "a$", "a+", "a?"]
             ),
+            ("/tasks*", "after '/'"),
+            ("/tasks/a*b", "after '/'"),
             ("/tasks/a,b", "commas"),
             ("/tasks/a b", "whitespace"),
         ],
@@ -196,6 +201,42 @@ class TestMayApplyTo:
         """Dots of refused paths match themselves only."""
         assert may_apply_to("/v1x0/tasks/1", "/v1.0/tasks/*") is False
         assert may_apply_to("/v1.0/tasks/1", "/v1.0/tasks/*") is True
+
+
+class TestRunsOfAnyCharacters:
+    """Tests for keeping the automata of long patterns small."""
+
+    @pytest.mark.parametrize("value", [".*" * 500, "a*" * 500, ".?" * 500, "+" * 900])
+    def test_merged(self, value: str) -> None:
+        """Runs of any characters are one item."""
+        assert _parse_value(value) == [_ANY_CHARS_ITEM]
+
+    def test_long_value_without_overlap(self) -> None:
+        """Long values that don't overlap are decided, too."""
+        value = "/" + ".*" * 511 + "/"
+        assert may_apply_to(value, "/ga4gh/tes/v1/tasks/:id") is False
+
+
+class TestInheritingRoles:
+    """Tests for finding the roles that inherit refused roles."""
+
+    def test_inheriting(self) -> None:
+        """Subjects and roles inheriting roles directly or indirectly count."""
+        links = [
+            ["team-lead", "owner"],
+            ["user:alice", "team-lead", "/tasks/1"],
+            ["user:bob", "admin"],
+            ["orphan"],
+        ]
+        assert inheriting_roles(["owner"], links) == {
+            "owner",
+            "team-lead",
+            "user:alice",
+        }
+
+    def test_none(self) -> None:
+        """Without links, only the roles count."""
+        assert inheriting_roles(["owner"], []) == {"owner"}
 
 
 class TestPathFields:

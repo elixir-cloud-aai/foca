@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import Iterator
+from copy import deepcopy
 from importlib.resources import path as resource_path
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,7 @@ from foca.models.config import (
     AuthConfig,
     Config,
     MongoConfig,
+    RefusedRulesConfig,
     SecurityConfig,
     ServiceClientConfig,
     SpecConfig,
@@ -34,6 +36,7 @@ from foca.security.access_control.constants import (
 )
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.access_control.register_access_control import (
+    _check_refused_rules_model,
     _expand_base_path,
     register_access_control,
 )
@@ -1075,7 +1078,9 @@ class TestRefusedRules:
         self, tmp_path: Path, rule: list[str], pointer: str, code: str
     ) -> None:
         """Refused rules can't be created or updated, even by admins."""
-        app = _create_app(tmp_path, [PETS_SPEC], api_refused_rules=REFUSED_RULES)
+        app = _create_app(
+            tmp_path, [PETS_SPEC], api_refused_rules=deepcopy(REFUSED_RULES)
+        )
         body = self._rule(*rule)
         responses = [
             Client(app).post(self.url, json=body, headers=ADMIN_HEADERS),
@@ -1092,7 +1097,7 @@ class TestRefusedRules:
     @pytest.mark.parametrize("refused", [{}, REFUSED_RULES])
     def test_allowed(self, tmp_path: Path, refused: dict[str, Any]) -> None:
         """Other rules can still be written; without the option, all can."""
-        app = _create_app(tmp_path, [PETS_SPEC], api_refused_rules=refused)
+        app = _create_app(tmp_path, [PETS_SPEC], api_refused_rules=deepcopy(refused))
         body = self._rule("p", "admin", "/api/v1/pets", "GET")
         response = Client(app).post(self.url, json=body, headers=ADMIN_HEADERS)
         assert response.status_code == 200
@@ -1114,7 +1119,7 @@ class TestRefusedRules:
                 ["p", "owner", "/api/v1/pets/:id", "GET"],
                 ["g2", "user:alice", "owner", "/api/v1/pets/1"],
             ],
-            api_refused_rules=REFUSED_RULES,
+            api_refused_rules=deepcopy(REFUSED_RULES),
         )
         assert _request(app, "alice", lambda: is_permitted_for("/api/v1/pets/1"))
 
@@ -1123,16 +1128,66 @@ class TestRefusedRules:
     ) -> None:
         """Refused rules without the API are pointed out."""
         _create_app(
-            tmp_path, [PETS_SPEC], api_enabled=False, api_refused_rules=REFUSED_RULES
+            tmp_path,
+            [PETS_SPEC],
+            api_enabled=False,
+            api_refused_rules=deepcopy(REFUSED_RULES),
         )
         assert (
             "'security.access_control.api_refused_rules' has no effect" in caplog.text
         )
 
+    def test_inherited_role(self, tmp_path: Path) -> None:
+        """Roles inheriting refused roles via configured rules are refused."""
+        app = _create_app(
+            tmp_path,
+            [PETS_SPEC],
+            policies=[["g", "team-lead", "owner"]],
+            api_refused_rules=deepcopy(REFUSED_RULES),
+        )
+        response = Client(app).post(
+            self.url,
+            json=self._rule("g", "user:alice", "team-lead"),
+            headers=ADMIN_HEADERS,
+        )
+        assert response.status_code == 400
+        assert response.json()["errors"][0]["code"] == "refused-role"
+
+    def test_unknown_policy_type(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Refused policy types that the model doesn't define are pointed out."""
+        _create_app(
+            tmp_path, [PETS_SPEC], api_refused_rules={"policy_types": ["g", "g3"]}
+        )
+        assert "Policy type 'g3'" in caplog.text
+        assert "Policy type 'g'" not in caplog.text
+
+    def test_model_without_paths(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Refused paths are pointed out if the model has no paths."""
+        model = tmp_path / "model.conf"
+        model.write_text(
+            "[request_definition]\nr = sub, res, act\n"
+            "[policy_definition]\np = sub, res, act\n"
+            "[policy_effect]\ne = some(where (p.eft == allow))\n"
+            "[matchers]\nm = r.sub == p.sub\n"
+        )
+        config = AccessControlConfig(
+            model=str(model), api_refused_rules=RefusedRulesConfig(paths=["/tasks/*"])
+        )
+        _check_refused_rules_model(config)
+        assert "has no fields that are paths" in caplog.text
+        caplog.clear()
+        config.api_enabled = False
+        _check_refused_rules_model(config)
+        assert caplog.text == ""
+
     def test_placeholder_without_api(self, tmp_path: Path) -> None:
         """The placeholder is refused if the app has no API."""
         with pytest.raises(ValueError, match="no API"):
-            _create_app(tmp_path, [], api_refused_rules=REFUSED_RULES)
+            _create_app(tmp_path, [], api_refused_rules=deepcopy(REFUSED_RULES))
 
     def test_without_placeholder_without_api(self, tmp_path: Path) -> None:
         """Paths without the placeholder need no API."""

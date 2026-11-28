@@ -772,6 +772,29 @@ class TestInvalidFields:
         self._assert_field(exc.value, pointer, code)
         assert collection.count_documents({}) == 0
 
+    def test_refused_inherited_role(
+        self, app: Flask, collection: Collection[dict[str, Any]]
+    ) -> None:
+        """Role rules granting roles that inherit refused roles are refused."""
+        _get_app_config(
+            app
+        ).security.access_control.api_refused_rules = RefusedRulesConfig(
+            roles=["s3cr3t"]
+        )
+        collection.insert_many(
+            [
+                {"ptype": "g", "v0": "team-lead", "v1": "s3cr3t", "id": "aaaaaa"},
+                {"ptype": "g", "v0": "other", "v1": 1, "id": "bbbbbb"},
+            ]
+        )
+        body = {"policy_type": "g", "rule": {"v0": "user:a", "v1": "team-lead"}}
+        with request_context(app=app), pytest.raises(InvalidFieldsProblem) as exc:
+            unwrap(postPermission)(body=body)
+        self._assert_field(exc.value, "#/rule/v1", "refused-role")
+        body = {"policy_type": "g", "rule": {"v0": "user:a", "v1": "other"}}
+        with request_context(app=app):
+            unwrap(postPermission)(body=body)
+
     def test_not_refused(
         self, app: Flask, collection: Collection[dict[str, Any]]
     ) -> None:
