@@ -35,6 +35,9 @@ _REFUSED_PATH_FORBIDDEN = frozenset("()[]{}|\\^$+?")
 # Characters of values that make them match any path, as the patterns
 # they form can't be read character by character
 _ANY_PATH_CHARS = frozenset("()[]|\\^$")
+# Levels of role inheritance looked up: those that Casbin's role managers
+# follow (`max_hierarchy_level`, 10 by default), and one more to be safe
+ROLE_LOOKUP_LEVELS = 11
 # Kinds of items of a path pattern
 _LITERAL = "literal"  # the character of the item
 _ANY_CHAR = "any-char"  # any character
@@ -132,7 +135,8 @@ def _parse_refused_path(path: str) -> list[_Item]:
 
     Returns:
         Items of the path: `*` matches any characters, `:name` a segment
-        (one or more characters other than `/`), other characters themselves.
+        (one or more characters other than `/`), `.` any character (as
+        `keyMatch2` reads it), other characters themselves.
     """
     return _parse(path, generous=False)
 
@@ -162,8 +166,8 @@ def _parse(pattern: str, generous: bool) -> list[_Item]:
             character; `*`, `?` and `{...}` are any characters, in place of
             the item before them, and `+` is any characters after it; `:name`
             with any of these is any characters (as other matchers read it).
-            Otherwise, `*` is any characters, and other characters are
-            literal.
+            Otherwise, `*` is any characters, `.` any character, and other
+            characters are literal.
 
     Returns:
         Items of the pattern.
@@ -196,7 +200,7 @@ def _parse(pattern: str, generous: bool) -> list[_Item]:
             add_any_chars()
         elif generous and char == "+":
             add_any_chars()
-        elif generous and char == ".":
+        elif char == ".":
             items.append(_Item(_ANY_CHAR))
         else:
             items.append(_Item(_LITERAL, char))
@@ -409,6 +413,7 @@ def inherits_role(
     role: str,
     roles: Collection[str],
     get_roles: Callable[[set[str]], Iterable[str]],
+    max_levels: int = ROLE_LOOKUP_LEVELS,
 ) -> bool:
     """Check whether a subject or role inherits one of some roles.
 
@@ -418,6 +423,8 @@ def inherits_role(
         get_roles: Function getting the roles that subjects or roles get
             directly (e.g., `owner` for `team-lead` with `[g, team-lead,
             owner]`).
+        max_levels: Levels of inheritance to look up, at least as many as the
+            enforcer follows.
 
     Returns:
         Whether it gets one of `roles` via other roles, directly or not; the
@@ -425,12 +432,14 @@ def inherits_role(
     """
     seen = {role}
     pending = {role}
-    while pending:
+    for _ in range(max_levels):
         found = set(get_roles(pending)) - seen
         if found & set(roles):
             return True
         seen |= found
         pending = found
+        if not pending:
+            break
     return False
 
 

@@ -10,6 +10,7 @@ from typing import Any, NoReturn
 
 from casbin.model import Model
 from flask import current_app
+from pymongo import ReadPreference
 from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError
 
@@ -333,9 +334,13 @@ def _get_granted_roles(ptype: str, subjects: set[str]) -> set[str]:
     Returns:
         Roles (`v1`) of the rules of the policy type in effect (configured rules
         of the active generation, and others) for the subjects; values that
-        aren't strings are left out, as the enforcer skips such rules.
+        aren't strings are left out, as the enforcer skips such rules. Read
+        from the primary, so that rules just written count.
     """
-    rules = _get_permissions_collection().find(
+    collection = _get_permissions_collection().with_options(
+        read_preference=ReadPreference.PRIMARY
+    )
+    rules = collection.find(
         {
             "ptype": ptype,
             "v0": {"$in": sorted(subjects)},

@@ -190,7 +190,7 @@ class TestMayApplyTo:
         [
             ("/tasks/:id", True),
             ("/tasks/:id/logs", False),
-            ("/v1.0/tasks/1", False),
+            ("/v1x0/tasks/1", False),
             ("/tasks", False),
         ],
     )
@@ -198,10 +198,12 @@ class TestMayApplyTo:
         """Refused paths are `keyMatch2` patterns, `.` matching itself."""
         assert may_apply_to("/tasks/1:cancel", refused) is expected
 
-    def test_literal_dot(self) -> None:
-        """Dots of refused paths match themselves only."""
-        assert may_apply_to("/v1x0/tasks/1", "/v1.0/tasks/*") is False
+    def test_dot(self) -> None:
+        """Dots of refused paths match any character, as in `keyMatch2`."""
+        assert may_apply_to("/v1x0/tasks/1", "/v1.0/tasks/*") is True
         assert may_apply_to("/v1.0/tasks/1", "/v1.0/tasks/*") is True
+        assert may_apply_to("/v1/0/tasks/1", "/v1.0/tasks/*") is True
+        assert may_apply_to("/v10/tasks/1", "/v1.0/tasks/*") is False
 
 
 class TestRunsOfAnyCharacters:
@@ -250,6 +252,11 @@ class TestInheritsRole:
     def test_inherits(self, role: str, expected: bool) -> None:
         """Roles are inherited via chains, which may have cycles."""
         assert inherits_role(role, ["owner"], self._get_roles) is expected
+
+    def test_levels(self) -> None:
+        """Roles are looked up as many levels deep as given."""
+        assert inherits_role("user:alice", ["owner"], self._get_roles, 3) is True
+        assert inherits_role("user:alice", ["owner"], self._get_roles, 2) is False
 
 
 class TestPathFields:

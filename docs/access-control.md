@@ -1721,7 +1721,7 @@ The API then responds to `POST /permissions` and `PUT /permissions/{id}` with
   `refused-role`, at `#/rule/v1`), to a subject or to another role, or that
   grants a subject or role inheriting a refused role via rules in effect of the
   same policy type, configured or stored (e.g., `team-lead` with `[g, team-lead,
-  owner]`), or
+  owner]`), as many levels deep as the enforcer follows, or
 - with a path that may apply to a refused path (`paths`, code `refused-path`, at
   the value, e.g., `#/rule/v1`).
 
@@ -1737,7 +1737,8 @@ Refused paths are full request paths, written as `keyMatch2` patterns: `:name`
 matches one segment (e.g., `/tasks/:id` matches `/tasks/1` and `/tasks/1:cancel`,
 but not `/tasks/1/logs`), `*` any characters, also `/` (e.g., `/tasks/*` matches
 all paths below `/tasks/`, but not `/tasks`; only after `/`, as `keyMatch2`
-reads it as a quantifier elsewhere), and other characters themselves. A
+reads it as a quantifier elsewhere), `.` any character (as `keyMatch2` reads
+it), and other characters themselves. A
 path may start with the placeholder `{base_path}`, which is replaced by the base
 path of each of the app's APIs, as in [`policies`](#configuring-policies). Other
 characters of regular expressions (e.g., `(`, `[`, `+`, `?`), commas and
@@ -1763,11 +1764,20 @@ none that do.
 Models that keep paths in other fields (e.g., object groupings such as `g2 = _, _`
 of `default_model.conf`, which map paths to groups that `p` rules then name) or
 grant rights in other ways aren't covered by `paths`: refuse their policy types or
-roles instead; the app warns on startup if the model has no fields that are
+roles instead. So are models that match paths with `regexMatch`, which
+matches values as prefixes of request paths unless they end in `$`. The app
+warns on startup if the model has no fields that are
 paths but `paths` is set, and of refused policy types that the model doesn't
 define. Roles that have rights on refused paths via `policies` (e.g., `owner`
 above) belong in `roles`, as a `g` rule granting them would grant those rights on
 all resources.
+
+Inherited roles are checked against the rules in effect when a rule is written.
+Links added later (e.g., a new configured rule `[g, team-lead, owner]`) aren't
+checked against rules stored before, as with rules stored before the setting:
+review those when you change `policies`. Links of resource-scoped roles count on
+all resources, so a role that inherits a refused role on one resource can't be
+granted via the API on any.
 
 ### Listing permissions
 
